@@ -232,7 +232,7 @@ Return ONLY valid JSON with EXACT keys:
 }}
 """
         response = client.models.generate_content(
-            model="gemini-3.5-flash",
+            model="gemini-3.6-flash",
             contents=[gem_file, prompt],
             config={"response_mime_type": "application/json"}
         )
