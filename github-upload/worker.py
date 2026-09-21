@@ -319,9 +319,9 @@ if hook_badge:
 
 
 # ==========================================
-# 5. Create 1080p Non-Overlapping Pill Badges
+# 5. Create 1080p Non-Overlapping Pill Badges (Dynamic Auto-Fit)
 # ==========================================
-print("🎨 Creating 1080p Badges with Guaranteed Zero-Overlap...")
+print("🎨 Creating 1080p Badges with Dynamic Auto-Fit Font Scaling...")
 img = Image.new("RGBA", (TARGET_W, TARGET_H), (0, 0, 0, 0))
 draw = ImageDraw.Draw(img)
 
@@ -331,25 +331,27 @@ area_clean = f"Total Area: {full_area}" if not full_area.lower().startswith("tot
 web_clean = "For More Details Visit: capitalprime.co.in"
 
 if is_vertical:
-    s1 = 56
-    s2 = 44
-    s_hook = 38
-    s3 = 34
+    init_s1, min_s1 = 50, 26
+    init_s2, min_s2 = 42, 24
+    init_hook, min_hook = 38, 22
+    init_s3, min_s3 = 32, 20
     v_pad = 12
     h_pad = 26
     gap = 14
     radius = 16
     y_start = int(TARGET_H * 0.05)
+    max_pill_w = TARGET_W - 140  # 70px breathing margin on each side
 else:
-    s1 = 42
-    s2 = 34
-    s_hook = 30
-    s3 = 28
+    init_s1, min_s1 = 40, 22
+    init_s2, min_s2 = 34, 20
+    init_hook, min_hook = 30, 18
+    init_s3, min_s3 = 26, 16
     v_pad = 10
     h_pad = 22
     gap = 12
     radius = 14
     y_start = int(TARGET_H * 0.04)
+    max_pill_w = TARGET_W - 160  # 80px breathing margin on each side
 
 def load_font(sz):
     if FONT_PATH.exists():
@@ -359,31 +361,39 @@ def load_font(sz):
             pass
     return ImageFont.load_default()
 
-f1 = load_font(s1)
-f2 = load_font(s2)
-f_hook = load_font(s_hook)
-f3 = load_font(s3)
+def fit_text_font(draw_obj, text, initial_size, min_size, max_w):
+    sz = initial_size
+    f = load_font(sz)
+    bbox = draw_obj.textbbox((0, 0), text, font=f)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    while tw > max_w and sz > min_size:
+        sz -= 2
+        f = load_font(sz)
+        bbox = draw_obj.textbbox((0, 0), text, font=f)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+    return f, tw, th, bbox
 
-lines_spec = [
-    (loc_clean, f1, "#FFD700"),   # Gold
-    (area_clean, f2, "#FFFFFF"),  # White
+badges_spec = [
+    (loc_clean, init_s1, min_s1, "#FFD700"),   # Gold
+    (area_clean, init_s2, min_s2, "#FFFFFF"),  # White
 ]
 
 if hook_badge and hook_badge.lower() not in ("none", "n/a", "null"):
-    lines_spec.append((f"✨ {hook_badge}", f_hook, "#34D399"))  # Emerald Green AI Hook Badge
+    clean_hook = re.sub(r'[^a-zA-Z0-9\s.,-]', '', hook_badge).strip()
+    badges_spec.append((f"Highlight: {clean_hook}", init_hook, min_hook, "#34D399"))  # Emerald Green
 
-lines_spec.append((web_clean, f3, "#60A5FA"))  # Cyan Blue
+badges_spec.append((web_clean, init_s3, min_s3, "#60A5FA"))  # Cyan Blue
 
 pill_fill = (0, 0, 0, 230)
 current_y = y_start
 
-for text, font, text_color in lines_spec:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
+for text, init_sz, min_sz, text_color in badges_spec:
+    max_text_w = max_pill_w - (2 * h_pad)
+    font, tw, th, bbox = fit_text_font(draw, text, init_sz, min_sz, max_text_w)
 
     x = (TARGET_W - tw) // 2
-
     pill_left = x - h_pad
     pill_top = current_y
     pill_right = x + tw + h_pad
@@ -396,12 +406,12 @@ for text, font, text_color in lines_spec:
     )
 
     text_y = pill_top + v_pad - bbox[1]
-    draw.text((x, text_y), text, font=font, fill=text_color)
+    draw.text((x - bbox[0], text_y), text, font=font, fill=text_color)
 
     current_y += th + (2 * v_pad) + gap
 
 img.save(OVERLAY_PNG, "PNG")
-print("✅ 1080p Overlay image generated with guaranteed non-overlapping badges!")
+print("✅ 1080p Overlay image generated with guaranteed non-overlapping auto-fit badges!")
 
 
 # ==========================================
