@@ -231,13 +231,18 @@ Return ONLY valid JSON with EXACT keys:
   }}
 }}
 """
-        response = client.models.generate_content(
-            model="gemini-3.6-flash",
-            contents=[gem_file, prompt],
-            config={"response_mime_type": "application/json"}
-        )
-        ai_meta = json.loads(response.text)
-        print("✅ Gemini AI Video Director analysis complete!")
+        for m_name in ["gemini-3.6-flash", "gemini-2.5-flash"]:
+            try:
+                response = client.models.generate_content(
+                    model=m_name,
+                    contents=[gem_file, prompt],
+                    config={"response_mime_type": "application/json"}
+                )
+                ai_meta = json.loads(response.text)
+                print(f"✅ Gemini AI Video Director ({m_name}) analysis complete!")
+                break
+            except Exception as em:
+                print(f"⚠️ Model {m_name} attempt: {em}")
     except Exception as e:
         print(f"⚠️ Gemini analysis fallback: {e}")
 
@@ -258,7 +263,7 @@ if not ai_meta:
         "video_director": {
             "hook_badge": "Prime Verified Property",
             "trim_start_sec": 0.0,
-            "trim_end_sec": video_duration,
+            "trim_end_sec": min(video_duration, 58.0),
             "brightness": 0.04,
             "contrast": 1.12,
             "saturation": 1.20,
@@ -279,17 +284,23 @@ except Exception:
     raw_start = 0.0
 
 try:
-    raw_end = float(director.get("trim_end_sec", video_duration) or video_duration)
+    raw_end = float(director.get("trim_end_sec", min(video_duration, 58.0)) or min(video_duration, 58.0))
 except Exception:
-    raw_end = video_duration
+    raw_end = min(video_duration, 58.0)
 
 # Strictly clamp trim bounds so clip is always valid and >= 6s
 trim_start = max(0.0, min(raw_start, max(0.0, video_duration - 8.0)))
 trim_end = max(trim_start + 6.0, min(raw_end, video_duration))
+
+# Social Shorts & Reels Compliance: Max duration 58.0 seconds
+MAX_REEL_DURATION = 58.0
+if (trim_end - trim_start) > MAX_REEL_DURATION:
+    trim_end = trim_start + MAX_REEL_DURATION
+
 do_trim = (trim_start >= 1.2 or (video_duration - trim_end) >= 1.5)
 
 if do_trim:
-    print(f"✂️ [AI Director Auto-Trim]: Trimming boring/shaky parts -> [{trim_start:.2f}s to {trim_end:.2f}s] (Duration: {trim_end - trim_start:.2f}s)")
+    print(f"✂️ [AI Director Auto-Trim]: Optimized for Shorts/Reels -> [{trim_start:.2f}s to {trim_end:.2f}s] (Duration: {trim_end - trim_start:.2f}s)")
 else:
     print(f"✂️ [AI Director Auto-Trim]: Whole video looks engaging, keeping full {video_duration:.2f}s.")
 
@@ -572,7 +583,7 @@ if base_meta_token and INSTAGRAM_USER_ID:
             with open(OUTPUT_1080P_PATH, "rb") as vf:
                 video_bytes = vf.read()
             up_res = requests.post(upload_uri, headers=h, data=video_bytes, timeout=300)
-            print(f"Instagram binary upload HTTP: {up_res.status_code}")
+            print(f"Instagram binary upload HTTP: {up_res.status_code}, Response: {up_res.text}")
 
             is_ready = False
             if up_res.status_code in (200, 201, 204):
