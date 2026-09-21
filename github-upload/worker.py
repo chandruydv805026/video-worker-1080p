@@ -470,6 +470,31 @@ if p_res.returncode != 0 or not OUTPUT_1080P_PATH.exists() or OUTPUT_1080P_PATH.
 out_mb = OUTPUT_1080P_PATH.stat().st_size / (1024 * 1024)
 print(f"🎉 1080p VIDEO STAMPED SUCCESSFULLY in {time.time() - t_stamp:.2f}s! Size: {out_mb:.2f} MB")
 
+# ==========================================
+# 6B. Upload Stamped 1080p Video to Cloudinary
+# ==========================================
+stamped_cloudinary_url = None
+if VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY_API_SECRET:
+    try:
+        import hashlib
+        print(f"\n☁️ Uploading Stamped 1080p Video to Cloudinary ({VIDEO_CLOUDINARY_CLOUD_NAME})...")
+        t_c = time.time()
+        c_ts = str(int(time.time()))
+        to_sign = f"timestamp={c_ts}{VIDEO_CLOUDINARY_API_SECRET}"
+        c_sig = hashlib.sha1(to_sign.encode('utf-8')).hexdigest()
+        c_up_url = f"https://api.cloudinary.com/v1_1/{VIDEO_CLOUDINARY_CLOUD_NAME}/video/upload"
+        with open(OUTPUT_1080P_PATH, 'rb') as f:
+            c_res = requests.post(c_up_url, data={
+                "timestamp": c_ts,
+                "api_key": VIDEO_CLOUDINARY_API_KEY,
+                "signature": c_sig
+            }, files={"file": f}, timeout=180).json()
+        stamped_cloudinary_url = c_res.get("secure_url")
+        if stamped_cloudinary_url:
+            print(f"✅ Stamped 1080p uploaded to Cloudinary in {time.time() - t_c:.2f}s!")
+            print(f"🔗 Cloudinary Master URL: {stamped_cloudinary_url}")
+    except Exception as ec:
+        print(f"⚠️ Cloudinary upload warning: {ec}")
 
 # ==========================================
 # 7. Multi-Platform Auto-Publishing
@@ -557,64 +582,78 @@ def get_real_page_token():
 
 page_token = get_real_page_token()
 
-# 7C. Instagram Reels Upload (Meta Resumable Protocol - Extended Polling)
+# 7C. Instagram Reels Upload (Cloud-to-Cloud with Resumable Fallback)
 if base_meta_token and INSTAGRAM_USER_ID:
     try:
         ig_info = ai_meta.get("instagram", {})
         ig_caption = ig_info.get("caption", TITLE) + "\n\n" + " ".join(ig_info.get("hashtags", []))
         
-        init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
-        p1 = {
-            "media_type": "REELS",
-            "upload_type": "resumable",
-            "caption": ig_caption,
-            "access_token": base_meta_token
-        }
-        r1 = requests.post(init_url, data=p1, timeout=60).json()
-        upload_uri = r1.get("uri")
-        container_id = r1.get("id")
+        container_id = None
 
-        if not container_id:
-            print(f"⚠️ Instagram container init error: {r1}")
-        else:
-            file_size = OUTPUT_1080P_PATH.stat().st_size
-            h = {
-                "Authorization": f"OAuth {base_meta_token}",
-                "offset": "0",
-                "file_size": str(file_size),
-                "Content-Type": "application/octet-stream"
-            }
-            runner_ip = "unknown"
+        # Method 1: Direct Cloud-to-Cloud Ingestion from Cloudinary (Guaranteed 100% Reliable)
+        if stamped_cloudinary_url:
             try:
-                runner_ip = requests.get("https://api.ipify.org", timeout=5).text.strip()
-            except Exception:
-                pass
-            print(f"🌐 Runner Public IP: {runner_ip}")
-            print(f"📦 Container ID: {container_id}, URI: {upload_uri}")
-            print(f"📊 Video Size: {file_size} bytes ({file_size/(1024*1024):.2f} MB)")
-            print(f"🔑 Token Len: {len(base_meta_token)}, Prefix: {base_meta_token[:15]}...")
+                print(f"\n📸 [Instagram] Trying Method 1: Direct Cloud-to-Cloud Ingestion...")
+                init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
+                p_cloud = {
+                    "media_type": "REELS",
+                    "video_url": stamped_cloudinary_url,
+                    "caption": ig_caption,
+                    "access_token": base_meta_token
+                }
+                r_cloud = requests.post(init_url, data=p_cloud, timeout=60).json()
+                container_id = r_cloud.get("id")
+                if container_id:
+                    print(f"✅ Cloud Container Created: {container_id}")
+                else:
+                    print(f"⚠️ Cloud Container Error: {r_cloud}")
+            except Exception as e_c:
+                print(f"⚠️ Cloud ingestion exception: {e_c}")
 
-            with open(OUTPUT_1080P_PATH, "rb") as vf:
-                up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
-            print(f"Instagram binary upload HTTP: {up_res.status_code}")
-            print(f"Instagram Response Headers: {dict(up_res.headers)}")
-            print(f"Instagram Response Body: {up_res.text}")
+        # Method 2: Resumable Binary Stream (Fallback)
+        if not container_id:
+            try:
+                print(f"\n📸 [Instagram] Trying Method 2: Resumable Stream to rupload...")
+                init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
+                p1 = {
+                    "media_type": "REELS",
+                    "upload_type": "resumable",
+                    "caption": ig_caption,
+                    "access_token": base_meta_token
+                }
+                r1 = requests.post(init_url, data=p1, timeout=60).json()
+                upload_uri = r1.get("uri")
+                container_id = r1.get("id")
+                if upload_uri and container_id:
+                    file_size = OUTPUT_1080P_PATH.stat().st_size
+                    h = {
+                        "Authorization": f"OAuth {base_meta_token}",
+                        "offset": "0",
+                        "file_size": str(file_size),
+                        "Content-Type": "application/octet-stream"
+                    }
+                    with open(OUTPUT_1080P_PATH, "rb") as vf:
+                        up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
+                    print(f"Instagram binary upload HTTP: {up_res.status_code}")
+            except Exception as e_r:
+                print(f"⚠️ Resumable upload exception: {e_r}")
 
+        # Polling & Publishing Container
+        if container_id:
+            print(f"⏳ Polling Instagram Container {container_id} status...")
+            status_url = f"https://graph.facebook.com/v21.0/{container_id}"
             is_ready = False
-            if up_res.status_code in (200, 201, 204):
-                # Fast polling: 20 attempts x 4 seconds = 80 seconds max
-                status_url = f"https://graph.facebook.com/v21.0/{container_id}"
-                for poll in range(1, 21):
-                    time.sleep(4)
-                    st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
-                    code = st.get("status_code")
-                    print(f"Instagram Reel processing [{poll}/20]: {code}")
-                    if code == "FINISHED":
-                        is_ready = True
-                        break
-                    elif code in ("ERROR", "EXPIRED"):
-                        print(f"⚠️ Instagram container error: {st}")
-                        break
+            for poll in range(1, 25):
+                time.sleep(4)
+                st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
+                code = st.get("status_code")
+                print(f"Instagram Reel processing [{poll}/25]: {code}")
+                if code == "FINISHED":
+                    is_ready = True
+                    break
+                elif code in ("ERROR", "EXPIRED"):
+                    print(f"⚠️ Instagram container error: {st}")
+                    break
 
             if is_ready:
                 pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
@@ -625,6 +664,8 @@ if base_meta_token and INSTAGRAM_USER_ID:
                 print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
             else:
                 print("⚠️ Instagram reel did not finish in time, skipped publish.")
+        else:
+            print("⚠️ Could not create Instagram container via either Method 1 or Method 2.")
     except Exception as e:
         print(f"⚠️ Instagram upload error: {e}")
 
@@ -678,6 +719,10 @@ if MONGODB_URI and PROPERTY_ID:
             "socialLinks.status": "completed",
             "socialLinks.updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }
+
+        if stamped_cloudinary_url:
+            update_set["brandedVideoUrl"] = stamped_cloudinary_url
+            print(f"🔗 Updated Branded Video URL: {stamped_cloudinary_url}")
 
         if video_id:
             yt_link = f"https://youtu.be/{video_id}"
