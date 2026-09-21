@@ -584,9 +584,21 @@ if base_meta_token and INSTAGRAM_USER_ID:
                 "file_size": str(file_size),
                 "Content-Type": "application/octet-stream"
             }
+            runner_ip = "unknown"
+            try:
+                runner_ip = requests.get("https://api.ipify.org", timeout=5).text.strip()
+            except Exception:
+                pass
+            print(f"🌐 Runner Public IP: {runner_ip}")
+            print(f"📦 Container ID: {container_id}, URI: {upload_uri}")
+            print(f"📊 Video Size: {file_size} bytes ({file_size/(1024*1024):.2f} MB)")
+            print(f"🔑 Token Len: {len(base_meta_token)}, Prefix: {base_meta_token[:15]}...")
+
             with open(OUTPUT_1080P_PATH, "rb") as vf:
                 up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
-            print(f"Instagram binary upload HTTP: {up_res.status_code}, Response: {up_res.text}")
+            print(f"Instagram binary upload HTTP: {up_res.status_code}")
+            print(f"Instagram Response Headers: {dict(up_res.headers)}")
+            print(f"Instagram Response Body: {up_res.text}")
 
             is_ready = False
             if up_res.status_code in (200, 201, 204):
