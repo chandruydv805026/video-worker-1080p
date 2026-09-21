@@ -560,13 +560,15 @@ if base_meta_token and INSTAGRAM_USER_ID:
                 "Content-Type": "application/octet-stream"
             }
             with open(OUTPUT_1080P_PATH, "rb") as vf:
-                up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
-                print(f"Instagram binary upload HTTP: {up_res.status_code}")
+                video_bytes = vf.read()
+            up_res = requests.post(upload_uri, headers=h, data=video_bytes, timeout=300)
+            print(f"Instagram binary upload HTTP: {up_res.status_code}")
 
-            # Extended polling: 45 attempts x 5 seconds = 225 seconds max
             is_ready = False
-            for poll in range(1, 46):
-                time.sleep(5)
+            if up_res.status_code in (200, 201, 204):
+                # Fast polling: 20 attempts x 3 seconds = 60 seconds max
+                for poll in range(1, 21):
+                    time.sleep(3)
                 status_url = f"https://graph.facebook.com/v21.0/{container_id}"
                 st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
                 code = st.get("status_code")
