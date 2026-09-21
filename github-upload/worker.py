@@ -577,18 +577,18 @@ if base_meta_token and INSTAGRAM_USER_ID:
             is_ready = False
             if up_res.status_code in (200, 201, 204):
                 # Fast polling: 20 attempts x 3 seconds = 60 seconds max
+                status_url = f"https://graph.facebook.com/v21.0/{container_id}"
                 for poll in range(1, 21):
                     time.sleep(3)
-                status_url = f"https://graph.facebook.com/v21.0/{container_id}"
-                st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
-                code = st.get("status_code")
-                print(f"Instagram Reel processing [{poll}/45]: {code}")
-                if code == "FINISHED":
-                    is_ready = True
-                    break
-                elif code in ("ERROR", "EXPIRED"):
-                    print(f"⚠️ Instagram container error: {st}")
-                    break
+                    st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
+                    code = st.get("status_code")
+                    print(f"Instagram Reel processing [{poll}/20]: {code}")
+                    if code == "FINISHED":
+                        is_ready = True
+                        break
+                    elif code in ("ERROR", "EXPIRED"):
+                        print(f"⚠️ Instagram container error: {st}")
+                        break
 
             if is_ready:
                 pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
