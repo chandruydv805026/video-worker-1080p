@@ -1,0 +1,96 @@
+name: 1080p Video Cloud Worker
+
+on:
+  repository_dispatch:
+    types: [process_video]
+  workflow_dispatch:
+    inputs:
+      video_url:
+        description: 'Cloudinary Video URL'
+        required: true
+        default: 'https://res.cloudinary.com/ievojsp6/video/upload/v1787678998/csdkiwvanavuuesy52k2.mp4'
+      location:
+        description: 'Property Location'
+        required: true
+        default: 'Pundag, Ranchi'
+      area:
+        description: 'Total Area'
+        required: true
+        default: '5'
+      area_unit:
+        description: 'Area Unit'
+        required: true
+        default: 'dismil'
+      title:
+        description: 'Property Title'
+        required: false
+        default: 'Prime Property in Ranchi'
+      property_id:
+        description: 'Capital Prime Property ID'
+        required: false
+        default: 'cp-test'
+
+jobs:
+  stamp-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Verify Pre-installed FFmpeg (0.1s Fast Check)
+        run: |
+          if command -v ffmpeg &> /dev/null; then
+            echo "⚡ FFmpeg already pre-installed on GitHub runner! Skipping apt download."
+            ffmpeg -version | head -n 1
+          else
+            sudo apt-get update && sudo apt-get install -y ffmpeg
+          fi
+
+      - name: Cache Python Virtual Environment (Zero Re-download)
+        uses: actions/cache@v4
+        id: venv-cache
+        with:
+          path: ~/.venv
+          key: venv-${{ runner.os }}-py312-${{ hashFiles('github-upload/requirements.txt') }}
+
+      - name: Install Python Dependencies (Runs ONLY on Cache Miss)
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          echo "📥 Cache miss: Installing dependencies into virtualenv..."
+          python -m venv ~/.venv
+          ~/.venv/bin/pip install --upgrade pip
+          if [ -f "github-upload/requirements.txt" ]; then
+            ~/.venv/bin/pip install -r github-upload/requirements.txt
+          else
+            ~/.venv/bin/pip install google-genai pillow requests google-api-python-client google-auth-oauthlib pymongo
+          fi
+
+      - name: Execute 1080p Stamping & Multi-Platform Publishing
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          INPUT_VIDEO_URL: ${{ github.event.client_payload.video_url || inputs.video_url }}
+          INPUT_LOCATION: ${{ github.event.client_payload.location || inputs.location }}
+          INPUT_AREA: ${{ github.event.client_payload.area || inputs.area }}
+          INPUT_AREA_UNIT: ${{ github.event.client_payload.area_unit || inputs.area_unit }}
+          INPUT_TITLE: ${{ github.event.client_payload.title || inputs.title }}
+          INPUT_PROPERTY_ID: ${{ github.event.client_payload.property_id || inputs.property_id }}
+        run: |
+          source ~/.venv/bin/activate
+          if [ -d "github-upload" ]; then
+            cd github-upload && python worker.py
+          else
+            python worker.py
+          fi
