@@ -705,7 +705,10 @@ if MONGODB_URI and PROPERTY_ID:
         from bson import ObjectId
 
         client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=10000)
-        db = client.get_default_database()
+        try:
+            db = client.get_default_database()
+        except Exception:
+            db = None
         if db is None or db.name == "admin":
             db = client["test"]
 
