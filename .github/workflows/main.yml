@@ -81,6 +81,9 @@ jobs:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           MONGODB_URI: ${{ secrets.MONGODB_URI }}
           YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          VIDEO_CLOUDINARY_CLOUD_NAME: ${{ secrets.VIDEO_CLOUDINARY_CLOUD_NAME }}
+          VIDEO_CLOUDINARY_API_KEY: ${{ secrets.VIDEO_CLOUDINARY_API_KEY }}
+          VIDEO_CLOUDINARY_API_SECRET: ${{ secrets.VIDEO_CLOUDINARY_API_SECRET }}
           INPUT_VIDEO_URL: ${{ github.event.client_payload.video_url || inputs.video_url }}
           INPUT_LOCATION: ${{ github.event.client_payload.location || inputs.location }}
           INPUT_AREA: ${{ github.event.client_payload.area || inputs.area }}
