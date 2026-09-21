@@ -436,22 +436,24 @@ eq_filter = f"eq=brightness={b_clean}:contrast={c_clean}:saturation={s_clean}"
 scale_filter = f"scale={TARGET_W}:{TARGET_H},setsar=1"
 fc = f"[0:v]{scale_filter},{eq_filter}[v0];[v0][1:v]overlay=0:0[v]"
 
-ffmpeg_cmd = ["ffmpeg", "-y", "-threads", "4"]
+ffmpeg_cmd = [
+    "ffmpeg", "-y", "-threads", "4",
+    "-i", str(INPUT_PATH),
+    "-i", str(OVERLAY_PNG)
+]
 
 if do_trim:
-    ffmpeg_cmd.extend(["-ss", f"{trim_start:.2f}", "-to", f"{trim_end:.2f}"])
+    ffmpeg_cmd.extend(["-ss", f"{trim_start:.2f}", "-t", f"{trim_end - trim_start:.2f}"])
 
 ffmpeg_cmd.extend([
-    "-i", str(INPUT_PATH),
-    "-i", str(OVERLAY_PNG),
     "-filter_complex", fc,
     "-map", "[v]",
     "-map", "0:a?",
     "-c:v", "libx264",
     "-preset", "veryfast",
     "-crf", "22",
-    "-maxrate", "4500k",
-    "-bufsize", "9000k",
+    "-maxrate", "2500k",
+    "-bufsize", "5000k",
     "-c:a", "aac",
     "-b:a", "128k",
     "-ar", "48000",
