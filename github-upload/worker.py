@@ -452,8 +452,10 @@ ffmpeg_cmd.extend([
     "-crf", "22",
     "-maxrate", "4500k",
     "-bufsize", "9000k",
+    "-c:a", "aac",
+    "-b:a", "128k",
+    "-ar", "48000",
     "-pix_fmt", "yuv420p",
-    "-c:a", "copy" if has_audio else "aac",
     "-movflags", "+faststart",
     str(OUTPUT_1080P_PATH)
 ])
@@ -581,16 +583,15 @@ if base_meta_token and INSTAGRAM_USER_ID:
                 "Content-Type": "application/octet-stream"
             }
             with open(OUTPUT_1080P_PATH, "rb") as vf:
-                video_bytes = vf.read()
-            up_res = requests.post(upload_uri, headers=h, data=video_bytes, timeout=300)
+                up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
             print(f"Instagram binary upload HTTP: {up_res.status_code}, Response: {up_res.text}")
 
             is_ready = False
             if up_res.status_code in (200, 201, 204):
-                # Fast polling: 20 attempts x 3 seconds = 60 seconds max
+                # Fast polling: 20 attempts x 4 seconds = 80 seconds max
                 status_url = f"https://graph.facebook.com/v21.0/{container_id}"
                 for poll in range(1, 21):
-                    time.sleep(3)
+                    time.sleep(4)
                     st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
                     code = st.get("status_code")
                     print(f"Instagram Reel processing [{poll}/20]: {code}")
@@ -606,7 +607,8 @@ if base_meta_token and INSTAGRAM_USER_ID:
                 p_pub = {"creation_id": container_id, "access_token": base_meta_token}
                 res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
                 reel_id = res_pub.get("id")
-                print(f"📸 [Instagram Success] Published Reel ID: {reel_id}")
+                reel_url = f"https://www.instagram.com/reel/{reel_id}/"
+                print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
             else:
                 print("⚠️ Instagram reel did not finish in time, skipped publish.")
     except Exception as e:
