@@ -12,7 +12,7 @@ on:
       location:
         description: 'Property Location'
         required: true
-        default: 'Pundag, Ranchi'
+        default: 'Ranchi'
       area:
         description: 'Total Area'
         required: true
