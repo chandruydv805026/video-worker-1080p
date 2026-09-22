@@ -231,7 +231,7 @@ Return ONLY valid JSON with EXACT keys:
   }}
 }}
 """
-        for m_name in ["gemini-3.6-flash", "gemini-2.5-flash"]:
+        for m_name in ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]:
             try:
                 response = client.models.generate_content(
                     model=m_name,
@@ -588,30 +588,59 @@ if base_meta_token and INSTAGRAM_USER_ID:
         ig_info = ai_meta.get("instagram", {})
         ig_caption = ig_info.get("caption", TITLE) + "\n\n" + " ".join(ig_info.get("hashtags", []))
         
-        container_id = None
+        reel_id = None
+        is_ready = False
 
-        # Method 1: Direct Cloud-to-Cloud Ingestion from Cloudinary (Guaranteed 100% Reliable)
+        # Method 1: Cloud-to-Cloud Ingestion from Cloudinary (with Auto-Retry)
         if stamped_cloudinary_url:
-            try:
-                print(f"\n📸 [Instagram] Trying Method 1: Direct Cloud-to-Cloud Ingestion...")
-                init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
-                p_cloud = {
-                    "media_type": "REELS",
-                    "video_url": stamped_cloudinary_url,
-                    "caption": ig_caption,
-                    "access_token": base_meta_token
-                }
-                r_cloud = requests.post(init_url, data=p_cloud, timeout=60).json()
-                container_id = r_cloud.get("id")
-                if container_id:
-                    print(f"✅ Cloud Container Created: {container_id}")
-                else:
-                    print(f"⚠️ Cloud Container Error: {r_cloud}")
-            except Exception as e_c:
-                print(f"⚠️ Cloud ingestion exception: {e_c}")
+            for attempt in range(1, 3):
+                try:
+                    print(f"\n📸 [Instagram] Attempt {attempt}/2: Cloud-to-Cloud Ingestion...")
+                    # Give Cloudinary CDN edge nodes 6s to replicate before Meta crawls
+                    time.sleep(6)
+                    init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
+                    p_cloud = {
+                        "media_type": "REELS",
+                        "video_url": stamped_cloudinary_url,
+                        "caption": ig_caption,
+                        "access_token": base_meta_token
+                    }
+                    r_cloud = requests.post(init_url, data=p_cloud, timeout=60).json()
+                    cid = r_cloud.get("id")
+                    if not cid:
+                        print(f"⚠️ Attempt {attempt} init error: {r_cloud}")
+                        continue
 
-        # Method 2: Resumable Binary Stream (Fallback)
-        if not container_id:
+                    print(f"⏳ Polling Instagram Container {cid} status...")
+                    status_url = f"https://graph.facebook.com/v21.0/{cid}"
+                    container_ok = False
+                    for poll in range(1, 26):
+                        time.sleep(4)
+                        st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
+                        code = st.get("status_code")
+                        print(f"Instagram Reel processing [{poll}/25]: {code}")
+                        if code == "FINISHED":
+                            container_ok = True
+                            break
+                        elif code in ("ERROR", "EXPIRED"):
+                            print(f"⚠️ Attempt {attempt} returned {code}: {st.get('status')}")
+                            break
+
+                    if container_ok:
+                        pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
+                        p_pub = {"creation_id": cid, "access_token": base_meta_token}
+                        res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
+                        reel_id = res_pub.get("id")
+                        if reel_id:
+                            reel_url = f"https://www.instagram.com/reel/{reel_id}/"
+                            print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
+                            is_ready = True
+                            break
+                except Exception as e_c:
+                    print(f"⚠️ Attempt {attempt} exception: {e_c}")
+
+        # Method 2: Resumable Binary Stream (Fallback if Method 1 fails)
+        if not is_ready:
             try:
                 print(f"\n📸 [Instagram] Trying Method 2: Resumable Stream to rupload...")
                 init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
@@ -623,8 +652,8 @@ if base_meta_token and INSTAGRAM_USER_ID:
                 }
                 r1 = requests.post(init_url, data=p1, timeout=60).json()
                 upload_uri = r1.get("uri")
-                container_id = r1.get("id")
-                if upload_uri and container_id:
+                cid2 = r1.get("id")
+                if upload_uri and cid2:
                     file_size = OUTPUT_1080P_PATH.stat().st_size
                     h = {
                         "Authorization": f"OAuth {base_meta_token}",
@@ -635,37 +664,24 @@ if base_meta_token and INSTAGRAM_USER_ID:
                     with open(OUTPUT_1080P_PATH, "rb") as vf:
                         up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
                     print(f"Instagram binary upload HTTP: {up_res.status_code}")
+                    for poll in range(1, 26):
+                        time.sleep(4)
+                        st = requests.get(f"https://graph.facebook.com/v21.0/{cid2}", params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
+                        code = st.get("status_code")
+                        print(f"Instagram Reel processing [{poll}/25]: {code}")
+                        if code == "FINISHED":
+                            pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
+                            p_pub = {"creation_id": cid2, "access_token": base_meta_token}
+                            res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
+                            reel_id = res_pub.get("id")
+                            if reel_id:
+                                reel_url = f"https://www.instagram.com/reel/{reel_id}/"
+                                print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
+                            break
+                        elif code in ("ERROR", "EXPIRED"):
+                            break
             except Exception as e_r:
                 print(f"⚠️ Resumable upload exception: {e_r}")
-
-        # Polling & Publishing Container
-        if container_id:
-            print(f"⏳ Polling Instagram Container {container_id} status...")
-            status_url = f"https://graph.facebook.com/v21.0/{container_id}"
-            is_ready = False
-            for poll in range(1, 25):
-                time.sleep(4)
-                st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
-                code = st.get("status_code")
-                print(f"Instagram Reel processing [{poll}/25]: {code}")
-                if code == "FINISHED":
-                    is_ready = True
-                    break
-                elif code in ("ERROR", "EXPIRED"):
-                    print(f"⚠️ Instagram container error: {st}")
-                    break
-
-            if is_ready:
-                pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
-                p_pub = {"creation_id": container_id, "access_token": base_meta_token}
-                res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
-                reel_id = res_pub.get("id")
-                reel_url = f"https://www.instagram.com/reel/{reel_id}/"
-                print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
-            else:
-                print("⚠️ Instagram reel did not finish in time, skipped publish.")
-        else:
-            print("⚠️ Could not create Instagram container via either Method 1 or Method 2.")
     except Exception as e:
         print(f"⚠️ Instagram upload error: {e}")
 
