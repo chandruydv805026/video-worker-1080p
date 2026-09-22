@@ -181,12 +181,26 @@ if GEMINI_API_KEY:
         from google import genai
         client = genai.Client(api_key=GEMINI_API_KEY)
         
-        gem_file = client.files.upload(file=str(INPUT_PATH))
+        # Ultra-fast lightweight 360p proxy (1-2 MB) for Gemini multimodal analysis (Instant upload & indexing)
+        t_proxy = time.time()
+        PROXY_PATH = WORK_DIR / "gemini_proxy.mp4"
+        cmd_proxy = [
+            "ffmpeg", "-y", "-i", str(INPUT_PATH),
+            "-vf", "scale=-2:360,fps=12",
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", "32",
+            "-an", str(PROXY_PATH)
+        ]
+        subprocess.run(cmd_proxy, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        upload_target = PROXY_PATH if PROXY_PATH.exists() and PROXY_PATH.stat().st_size > 10000 else INPUT_PATH
+        proxy_size_mb = upload_target.stat().st_size / (1024 * 1024)
+        print(f"⚡ Generated lightweight analysis proxy ({proxy_size_mb:.2f} MB) in {time.time() - t_proxy:.2f}s")
+        
+        gem_file = client.files.upload(file=str(upload_target))
         waited = 0
         while getattr(gem_file, "state", None) and gem_file.state.name == "PROCESSING":
             if waited > 30: break
-            time.sleep(2)
-            waited += 2
+            time.sleep(1)
+            waited += 1
             gem_file = client.files.get(name=gem_file.name)
             
         prompt = f"""
@@ -443,7 +457,7 @@ ffmpeg_cmd.extend([
     "-map", "[v]",
     "-map", "0:a?",
     "-c:v", "libx264",
-    "-preset", "veryfast",
+    "-preset", "superfast",
     "-crf", "22",
     "-maxrate", "2500k",
     "-bufsize", "5000k",
@@ -498,67 +512,13 @@ print("\n" + "=" * 60)
 print("🚀 PUBLISHING 1080p VIDEO TO SOCIAL MEDIA...")
 print("=" * 60)
 
+import concurrent.futures
+
 video_id = None
 reel_id = None
 vid_id = None
 
-# 7A. YouTube Upload — Token from GitHub Secret (YOUTUBE_TOKEN_JSON)
-token_json_str = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
-token_path = Path("token.json")
-
-# Load token: first try env secret, then fallback to file (for local testing)
-if token_json_str:
-    try:
-        import tempfile
-        tmp_token = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
-        tmp_token.write(token_json_str)
-        tmp_token.close()
-        token_path = Path(tmp_token.name)
-        print("🔐 [YouTube Auth] Token loaded from GitHub Secret ✅")
-    except Exception as e:
-        print(f"⚠️ Failed to write token from secret: {e}")
-        token_json_str = ""
-
-if token_path.exists():
-    try:
-        from google.oauth2.credentials import Credentials
-        from googleapiclient.discovery import build
-        from googleapiclient.http import MediaFileUpload
-
-        creds = Credentials.from_authorized_user_file(str(token_path))
-        if creds.expired and creds.refresh_token:
-            from google.auth.transport.requests import Request
-            creds.refresh(Request())
-            print("🔄 [YouTube OAuth] Access token auto-refreshed successfully!")
-        yt_service = build("youtube", "v3", credentials=creds)
-
-        yt_info = ai_meta.get("youtube", {})
-        yt_title = yt_info.get("title", TITLE)[:100]
-        if is_vertical and "#shorts" not in yt_title.lower() and len(yt_title) <= 92:
-            yt_title = f"{yt_title} #Shorts"
-
-        first_comment = "📍 For more details visit: https://capitalprime.co.in"
-        yt_desc = f"{first_comment}\n\n" + yt_info.get("description", "")
-        body = {
-            "snippet": {
-                "title": yt_title,
-                "description": yt_desc,
-                "tags": yt_info.get("tags", ["RealEstate", "Ranchi", "CapitalPrime"]),
-                "categoryId": "22"
-            },
-            "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
-        }
-        media = MediaFileUpload(str(OUTPUT_1080P_PATH), chunksize=1024*1024*5, resumable=True)
-        req = yt_service.videos().insert(part="snippet,status", body=body, media_body=media)
-        res_yt = req.execute()
-        video_id = res_yt.get("id")
-        print(f"▶️ [YouTube Success] Video ID: {video_id} -> https://youtu.be/{video_id}")
-    except Exception as e:
-        print(f"⚠️ YouTube upload error: {e}")
-else:
-    print("ℹ️ YouTube token not found, skipping YouTube live upload.")
-
-# 7B. Meta Page Token Helper
+# Meta Page Token Helper
 base_meta_token = FB_PAGE_ACCESS_TOKEN or META_ACCESS_TOKEN
 
 def get_real_page_token():
@@ -577,130 +537,197 @@ def get_real_page_token():
 
 page_token = get_real_page_token()
 
-# 7C. Instagram Reels Upload (Cloud-to-Cloud with Resumable Fallback)
-if base_meta_token and INSTAGRAM_USER_ID:
-    try:
-        ig_info = ai_meta.get("instagram", {})
-        ig_caption = ig_info.get("caption", TITLE) + "\n\n" + " ".join(ig_info.get("hashtags", []))
-        
-        reel_id = None
-        is_ready = False
+# 7A. YouTube Upload Function
+def upload_to_youtube():
+    global video_id
+    token_json_str = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
+    token_path = Path("token.json")
+    if token_json_str:
+        try:
+            import tempfile
+            tmp_token = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+            tmp_token.write(token_json_str)
+            tmp_token.close()
+            token_path = Path(tmp_token.name)
+            print("🔐 [YouTube Auth] Token loaded from GitHub Secret ✅")
+        except Exception as e:
+            print(f"⚠️ Failed to write token from secret: {e}")
+            token_json_str = ""
 
-        # Method 1: Cloud-to-Cloud Ingestion from Cloudinary (with Auto-Retry)
-        if stamped_cloudinary_url:
-            for attempt in range(1, 3):
-                try:
-                    print(f"\n📸 [Instagram] Attempt {attempt}/2: Cloud-to-Cloud Ingestion...")
-                    # Give Cloudinary CDN edge nodes 6s to replicate before Meta crawls
-                    time.sleep(6)
-                    init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
-                    p_cloud = {
-                        "media_type": "REELS",
-                        "video_url": stamped_cloudinary_url,
-                        "caption": ig_caption,
-                        "access_token": base_meta_token
-                    }
-                    r_cloud = requests.post(init_url, data=p_cloud, timeout=60).json()
-                    cid = r_cloud.get("id")
-                    if not cid:
-                        print(f"⚠️ Attempt {attempt} init error: {r_cloud}")
-                        continue
+    if token_path.exists():
+        try:
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
+            from googleapiclient.http import MediaFileUpload
 
-                    print(f"⏳ Polling Instagram Container {cid} status...")
-                    status_url = f"https://graph.facebook.com/v21.0/{cid}"
-                    container_ok = False
-                    for poll in range(1, 26):
-                        time.sleep(4)
-                        st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
-                        code = st.get("status_code")
-                        print(f"Instagram Reel processing [{poll}/25]: {code}")
-                        if code == "FINISHED":
-                            container_ok = True
-                            break
-                        elif code in ("ERROR", "EXPIRED"):
-                            print(f"⚠️ Attempt {attempt} returned {code}: {st.get('status')}")
-                            break
+            creds = Credentials.from_authorized_user_file(str(token_path))
+            if creds.expired and creds.refresh_token:
+                from google.auth.transport.requests import Request
+                creds.refresh(Request())
+                print("🔄 [YouTube OAuth] Access token auto-refreshed successfully!")
+            yt_service = build("youtube", "v3", credentials=creds)
 
-                    if container_ok:
-                        pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
-                        p_pub = {"creation_id": cid, "access_token": base_meta_token}
-                        res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
-                        reel_id = res_pub.get("id")
-                        if reel_id:
-                            reel_url = f"https://www.instagram.com/reel/{reel_id}/"
-                            print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
-                            is_ready = True
-                            break
-                except Exception as e_c:
-                    print(f"⚠️ Attempt {attempt} exception: {e_c}")
+            yt_info = ai_meta.get("youtube", {})
+            yt_title = yt_info.get("title", TITLE)[:100]
+            if is_vertical and "#shorts" not in yt_title.lower() and len(yt_title) <= 92:
+                yt_title = f"{yt_title} #Shorts"
 
-        # Method 2: Resumable Binary Stream (Fallback if Method 1 fails)
-        if not is_ready:
-            try:
-                print(f"\n📸 [Instagram] Trying Method 2: Resumable Stream to rupload...")
-                init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
-                p1 = {
-                    "media_type": "REELS",
-                    "upload_type": "resumable",
-                    "caption": ig_caption,
-                    "access_token": base_meta_token
+            first_comment = "📍 For more details visit: https://capitalprime.co.in"
+            yt_desc = f"{first_comment}\n\n" + yt_info.get("description", "")
+            body = {
+                "snippet": {
+                    "title": yt_title,
+                    "description": yt_desc,
+                    "tags": yt_info.get("tags", ["RealEstate", "Ranchi", "CapitalPrime"]),
+                    "categoryId": "22"
+                },
+                "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
+            }
+            media = MediaFileUpload(str(OUTPUT_1080P_PATH), chunksize=1024*1024*5, resumable=True)
+            req = yt_service.videos().insert(part="snippet,status", body=body, media_body=media)
+            res_yt = req.execute()
+            video_id = res_yt.get("id")
+            print(f"▶️ [YouTube Success] Video ID: {video_id} -> https://youtu.be/{video_id}")
+        except Exception as e:
+            print(f"⚠️ YouTube upload error: {e}")
+    else:
+        print("ℹ️ YouTube token not found, skipping YouTube live upload.")
+
+# 7B. Facebook Page Video Upload Function
+def upload_to_facebook():
+    global vid_id
+    if page_token and FB_PAGE_ID:
+        try:
+            fb_info = ai_meta.get("facebook", {})
+            fb_caption = fb_info.get("caption", TITLE) + f"\n\n📍 Location: {LOCATION}\n📐 Total Area: {AREA} {AREA_UNIT}\n🌐 https://capitalprime.co.in"
+            fb_url = f"https://graph-video.facebook.com/v21.0/{FB_PAGE_ID}/videos"
+            with open(OUTPUT_1080P_PATH, "rb") as vf:
+                files = {"source": ("stamped_1080p.mp4", vf, "video/mp4")}
+                data = {
+                    "title": f"Prime Plot: {LOCATION} ({AREA} {AREA_UNIT})",
+                    "description": fb_caption,
+                    "access_token": page_token
                 }
-                r1 = requests.post(init_url, data=p1, timeout=60).json()
-                upload_uri = r1.get("uri")
-                cid2 = r1.get("id")
-                if upload_uri and cid2:
-                    file_size = OUTPUT_1080P_PATH.stat().st_size
-                    h = {
-                        "Authorization": f"OAuth {base_meta_token}",
-                        "offset": "0",
-                        "file_size": str(file_size),
-                        "Content-Type": "application/octet-stream"
-                    }
-                    with open(OUTPUT_1080P_PATH, "rb") as vf:
-                        up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
-                    print(f"Instagram binary upload HTTP: {up_res.status_code}")
-                    for poll in range(1, 26):
-                        time.sleep(4)
-                        st = requests.get(f"https://graph.facebook.com/v21.0/{cid2}", params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
-                        code = st.get("status_code")
-                        print(f"Instagram Reel processing [{poll}/25]: {code}")
-                        if code == "FINISHED":
+                fb_res = requests.post(fb_url, data=data, files=files, timeout=300).json()
+                vid_id = fb_res.get("id")
+                if vid_id:
+                    print(f"📘 [Facebook Success] Video ID: {vid_id} -> https://www.facebook.com/watch/?v={vid_id}")
+                else:
+                    print(f"⚠️ Facebook upload error: {fb_res}")
+        except Exception as e:
+            print(f"⚠️ Facebook upload error: {e}")
+
+# 7C. Instagram Reels Upload Function
+def upload_to_instagram():
+    global reel_id
+    if base_meta_token and INSTAGRAM_USER_ID:
+        try:
+            ig_info = ai_meta.get("instagram", {})
+            ig_caption = ig_info.get("caption", TITLE) + "\n\n" + " ".join(ig_info.get("hashtags", []))
+            is_ready = False
+
+            # Method 1: Cloud-to-Cloud Ingestion from Cloudinary (with Auto-Retry)
+            if stamped_cloudinary_url:
+                for attempt in range(1, 3):
+                    try:
+                        print(f"\n📸 [Instagram] Attempt {attempt}/2: Cloud-to-Cloud Ingestion...")
+                        time.sleep(5)
+                        init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
+                        p_cloud = {
+                            "media_type": "REELS",
+                            "video_url": stamped_cloudinary_url,
+                            "caption": ig_caption,
+                            "access_token": base_meta_token
+                        }
+                        r_cloud = requests.post(init_url, data=p_cloud, timeout=60).json()
+                        cid = r_cloud.get("id")
+                        if not cid:
+                            print(f"⚠️ Attempt {attempt} init error: {r_cloud}")
+                            continue
+
+                        print(f"⏳ Polling Instagram Container {cid} status...")
+                        status_url = f"https://graph.facebook.com/v21.0/{cid}"
+                        container_ok = False
+                        for poll in range(1, 30):
+                            time.sleep(3)
+                            st = requests.get(status_url, params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
+                            code = st.get("status_code")
+                            print(f"Instagram Reel processing [{poll}/30]: {code}")
+                            if code == "FINISHED":
+                                container_ok = True
+                                break
+                            elif code in ("ERROR", "EXPIRED"):
+                                print(f"⚠️ Attempt {attempt} returned {code}: {st.get('status')}")
+                                break
+
+                        if container_ok:
                             pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
-                            p_pub = {"creation_id": cid2, "access_token": base_meta_token}
+                            p_pub = {"creation_id": cid, "access_token": base_meta_token}
                             res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
                             reel_id = res_pub.get("id")
                             if reel_id:
                                 reel_url = f"https://www.instagram.com/reel/{reel_id}/"
                                 print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
-                            break
-                        elif code in ("ERROR", "EXPIRED"):
-                            break
-            except Exception as e_r:
-                print(f"⚠️ Resumable upload exception: {e_r}")
-    except Exception as e:
-        print(f"⚠️ Instagram upload error: {e}")
+                                is_ready = True
+                                break
+                    except Exception as e_c:
+                        print(f"⚠️ Attempt {attempt} exception: {e_c}")
 
-# 7D. Facebook Page Video Upload
-if page_token and FB_PAGE_ID:
-    try:
-        fb_info = ai_meta.get("facebook", {})
-        fb_caption = fb_info.get("caption", TITLE) + f"\n\n📍 Location: {LOCATION}\n📐 Total Area: {AREA} {AREA_UNIT}\n🌐 https://capitalprime.co.in"
-        fb_url = f"https://graph-video.facebook.com/v21.0/{FB_PAGE_ID}/videos"
-        with open(OUTPUT_1080P_PATH, "rb") as vf:
-            files = {"source": ("stamped_1080p.mp4", vf, "video/mp4")}
-            data = {
-                "title": f"Prime Plot: {LOCATION} ({AREA} {AREA_UNIT})",
-                "description": fb_caption,
-                "access_token": page_token
-            }
-            fb_res = requests.post(fb_url, data=data, files=files, timeout=300).json()
-            vid_id = fb_res.get("id")
-            if vid_id:
-                print(f"📘 [Facebook Success] Video ID: {vid_id} -> https://www.facebook.com/watch/?v={vid_id}")
-            else:
-                print(f"⚠️ Facebook upload error: {fb_res}")
-    except Exception as e:
-        print(f"⚠️ Facebook upload error: {e}")
+            # Method 2: Resumable Binary Stream (Fallback if Method 1 fails)
+            if not is_ready:
+                try:
+                    print(f"\n📸 [Instagram] Trying Method 2: Resumable Stream to rupload...")
+                    init_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media"
+                    p1 = {
+                        "media_type": "REELS",
+                        "upload_type": "resumable",
+                        "caption": ig_caption,
+                        "access_token": base_meta_token
+                    }
+                    r1 = requests.post(init_url, data=p1, timeout=60).json()
+                    upload_uri = r1.get("uri")
+                    cid2 = r1.get("id")
+                    if upload_uri and cid2:
+                        file_size = OUTPUT_1080P_PATH.stat().st_size
+                        h = {
+                            "Authorization": f"OAuth {base_meta_token}",
+                            "offset": "0",
+                            "file_size": str(file_size),
+                            "Content-Type": "application/octet-stream"
+                        }
+                        with open(OUTPUT_1080P_PATH, "rb") as vf:
+                            up_res = requests.post(upload_uri, headers=h, data=vf, timeout=300)
+                        print(f"Instagram binary upload HTTP: {up_res.status_code}")
+                        for poll in range(1, 30):
+                            time.sleep(3)
+                            st = requests.get(f"https://graph.facebook.com/v21.0/{cid2}", params={"fields": "status_code,status", "access_token": base_meta_token}, timeout=15).json()
+                            code = st.get("status_code")
+                            print(f"Instagram Reel processing [{poll}/30]: {code}")
+                            if code == "FINISHED":
+                                pub_url = f"https://graph.facebook.com/v21.0/{INSTAGRAM_USER_ID}/media_publish"
+                                p_pub = {"creation_id": cid2, "access_token": base_meta_token}
+                                res_pub = requests.post(pub_url, data=p_pub, timeout=30).json()
+                                reel_id = res_pub.get("id")
+                                if reel_id:
+                                    reel_url = f"https://www.instagram.com/reel/{reel_id}/"
+                                    print(f"📸 [Instagram Success] Published Reel ID: {reel_id} -> {reel_url}")
+                                break
+                            elif code in ("ERROR", "EXPIRED"):
+                                break
+                except Exception as e_r:
+                    print(f"⚠️ Resumable upload exception: {e_r}")
+        except Exception as e:
+            print(f"⚠️ Instagram upload error: {e}")
+
+# Execute All 3 Social Platforms Concurrently
+print("⚡ Launching Parallel Publishing to YouTube, Instagram & Facebook...")
+t_pub = time.time()
+with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    fut_yt = executor.submit(upload_to_youtube)
+    fut_fb = executor.submit(upload_to_facebook)
+    fut_ig = executor.submit(upload_to_instagram)
+    concurrent.futures.wait([fut_yt, fut_fb, fut_ig])
+print(f"✅ Multi-Platform Publishing completed in {time.time() - t_pub:.2f}s!")
 
 
 # ==========================================
