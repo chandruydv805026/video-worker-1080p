@@ -594,13 +594,56 @@ def upload_to_youtube():
     else:
         print("ℹ️ YouTube token not found, skipping YouTube live upload.")
 
-# 7B. Facebook Page Video Upload Function
+# 7B. Facebook Page Video Upload Function (Reels First, then Video Fallback)
 def upload_to_facebook():
     global vid_id
     if page_token and FB_PAGE_ID:
         try:
             fb_info = ai_meta.get("facebook", {})
-            fb_caption = fb_info.get("caption", TITLE) + f"\n\n📍 Location: {LOCATION}\n📐 Total Area: {AREA} {AREA_UNIT}\n🌐 https://capitalprime.co.in"
+            fb_caption = fb_info.get("caption", TITLE) + f"\n\n📍 Location: {LOCATION}\n📐 Total Area: {AREA} {AREA_UNIT}\n🌐 https://capitalprime.co.in\n\n#Ranchi #RanchiRealEstate #PlotsInRanchi #CapitalPrime #Reels #FacebookReels #PropertyInRanchi"
+            
+            # 1. Primary: Official Facebook Reels API (Direct distribution into Facebook Reels feed)
+            print(f"\n📘 [Facebook Reels] Initializing Reel on Page {FB_PAGE_ID}...")
+            init_url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/video_reels"
+            init_res = requests.post(init_url, params={"upload_phase": "start", "access_token": page_token}, timeout=30).json()
+            
+            reel_video_id = init_res.get("video_id")
+            reel_upload_url = init_res.get("upload_url")
+            
+            if reel_video_id and reel_upload_url:
+                print(f"📘 [Facebook Reels] Uploading video binary stream to Meta...")
+                with open(OUTPUT_1080P_PATH, "rb") as vf:
+                    file_data = vf.read()
+                
+                headers = {
+                    "Authorization": f"OAuth {page_token}",
+                    "offset": "0",
+                    "file_size": str(len(file_data))
+                }
+                up_res = requests.post(reel_upload_url, data=file_data, headers=headers, timeout=300)
+                
+                finish_res = requests.post(
+                    init_url,
+                    params={
+                        "upload_phase": "finish",
+                        "video_id": reel_video_id,
+                        "video_state": "PUBLISHED",
+                        "description": fb_caption,
+                        "access_token": page_token
+                    },
+                    timeout=30
+                ).json()
+                
+                if finish_res.get("success") or finish_res.get("id"):
+                    vid_id = reel_video_id
+                    print(f"📘 [Facebook Reel Success] 🚀 Published as Official Facebook Reel! Video ID: {vid_id} -> https://www.facebook.com/watch/?v={vid_id}")
+                    return
+                else:
+                    print(f"⚠️ [Facebook Reel Finish Notice]: {finish_res}. Falling back to standard video post...")
+            else:
+                print(f"⚠️ [Facebook Reel Init Notice]: {init_res}. Falling back to standard video post...")
+
+            # 2. Fallback: Standard Page Video Post
             fb_url = f"https://graph-video.facebook.com/v21.0/{FB_PAGE_ID}/videos"
             with open(OUTPUT_1080P_PATH, "rb") as vf:
                 files = {"source": ("stamped_1080p.mp4", vf, "video/mp4")}
