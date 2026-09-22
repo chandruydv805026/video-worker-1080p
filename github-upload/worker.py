@@ -26,7 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 # 1. Config & Environment Variables
 # ==========================================
 VIDEO_URL = os.getenv("INPUT_VIDEO_URL", "").strip()
-LOCATION = os.getenv("INPUT_LOCATION", "Pundag, Ranchi").strip()
+LOCATION = os.getenv("INPUT_LOCATION", "Ranchi").strip()
 AREA = os.getenv("INPUT_AREA", "5").strip()
 AREA_UNIT = os.getenv("INPUT_AREA_UNIT", "dismil").strip()
 TITLE = os.getenv("INPUT_TITLE", "Prime Property in Ranchi").strip()
