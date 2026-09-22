@@ -342,26 +342,24 @@ area_clean = f"Total Area: {full_area}" if not full_area.lower().startswith("tot
 web_clean = "For More Details Visit: capitalprime.co.in"
 
 if is_vertical:
-    init_s1, min_s1 = 50, 26
-    init_s2, min_s2 = 42, 24
-    init_hook, min_hook = 38, 22
-    init_s3, min_s3 = 32, 20
-    v_pad = 12
-    h_pad = 26
-    gap = 14
+    init_s1, min_s1 = 54, 28
+    init_s2, min_s2 = 44, 24
+    init_s3, min_s3 = 34, 20
+    v_pad = 13
+    h_pad = 28
+    gap = 16
     radius = 16
-    y_start = int(TARGET_H * 0.05)
+    y_start = int(TARGET_H * 0.055)
     max_pill_w = TARGET_W - 140  # 70px breathing margin on each side
 else:
-    init_s1, min_s1 = 40, 22
-    init_s2, min_s2 = 34, 20
-    init_hook, min_hook = 30, 18
-    init_s3, min_s3 = 26, 16
-    v_pad = 10
-    h_pad = 22
-    gap = 12
+    init_s1, min_s1 = 42, 22
+    init_s2, min_s2 = 36, 20
+    init_s3, min_s3 = 28, 16
+    v_pad = 11
+    h_pad = 24
+    gap = 14
     radius = 14
-    y_start = int(TARGET_H * 0.04)
+    y_start = int(TARGET_H * 0.045)
     max_pill_w = TARGET_W - 160  # 80px breathing margin on each side
 
 def load_font(sz):
@@ -386,16 +384,12 @@ def fit_text_font(draw_obj, text, initial_size, min_size, max_w):
         th = bbox[3] - bbox[1]
     return f, tw, th, bbox
 
+# Clean 3-Badge Spec: Location, Area, and Website (Highlight badge removed)
 badges_spec = [
     (loc_clean, init_s1, min_s1, "#FFD700"),   # Gold
     (area_clean, init_s2, min_s2, "#FFFFFF"),  # White
+    (web_clean, init_s3, min_s3, "#60A5FA"),   # Cyan Blue
 ]
-
-if hook_badge and hook_badge.lower() not in ("none", "n/a", "null"):
-    clean_hook = re.sub(r'[^a-zA-Z0-9\s.,-]', '', hook_badge).strip()
-    badges_spec.append((f"Highlight: {clean_hook}", init_hook, min_hook, "#34D399"))  # Emerald Green
-
-badges_spec.append((web_clean, init_s3, min_s3, "#60A5FA"))  # Cyan Blue
 
 pill_fill = (0, 0, 0, 230)
 current_y = y_start
