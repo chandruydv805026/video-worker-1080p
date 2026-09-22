@@ -199,7 +199,10 @@ Context:
 - Title: {TITLE}
 
 Carefully inspect the visual footage:
-1. Shaky / Boring Cut Points: If the initial 1-4 seconds show cameraman looking at feet/ground or heavy camera shake, suggest trim start. If the end has dead space or abrupt stoppage, suggest trim end. Keep the best, most engaging 20-55s of walkthrough.
+1. Meaningless / Boring Cut Points: Do NOT cut the video just to make it shorter! We want the full property walkthrough shown to buyers. Only suggest trimming if there is genuine junk/boring footage:
+   - trim_start_sec: If the first few seconds show the cameraman looking down at feet/ground, pockets, or chaotic camera tumbling, set trim_start_sec to when the actual property viewing begins. Otherwise, keep it 0.0.
+   - trim_end_sec: If the final seconds show the phone being put into a pocket, pointed at the sky, or dead footage, set trim_end_sec to where property viewing ends. Otherwise, keep it {video_duration:.1f}.
+   - If the entire footage is good and relevant, keep 100% of it (trim_start_sec: 0.0, trim_end_sec: {video_duration:.1f}).
 2. Standout Visual Feature: What is the single most attractive selling point visible in the footage? (e.g. 'Wide 40ft Road Access', 'Corner Plot', 'Prime Boundary Wall Done', 'Scenic Mountain View', 'Direct Highway Access', 'Ready For Registry', 'Clean Level Ground'). Keep it under 5 words.
 3. Color & Lighting Polish:
    - brightness: between -0.05 and +0.12 (e.g. 0.04 for clean light boost)
@@ -263,7 +266,7 @@ if not ai_meta:
         "video_director": {
             "hook_badge": "Prime Verified Property",
             "trim_start_sec": 0.0,
-            "trim_end_sec": min(video_duration, 58.0),
+            "trim_end_sec": video_duration,
             "brightness": 0.04,
             "contrast": 1.12,
             "saturation": 1.20,
@@ -284,25 +287,21 @@ except Exception:
     raw_start = 0.0
 
 try:
-    raw_end = float(director.get("trim_end_sec", min(video_duration, 58.0)) or min(video_duration, 58.0))
+    raw_end = float(director.get("trim_end_sec", video_duration) or video_duration)
 except Exception:
-    raw_end = min(video_duration, 58.0)
+    raw_end = video_duration
 
 # Strictly clamp trim bounds so clip is always valid and >= 6s
 trim_start = max(0.0, min(raw_start, max(0.0, video_duration - 8.0)))
 trim_end = max(trim_start + 6.0, min(raw_end, video_duration))
 
-# Social Shorts & Reels Compliance: Max duration 58.0 seconds
-MAX_REEL_DURATION = 58.0
-if (trim_end - trim_start) > MAX_REEL_DURATION:
-    trim_end = trim_start + MAX_REEL_DURATION
-
-do_trim = (trim_start >= 1.2 or (video_duration - trim_end) >= 1.5)
+# No artificial time cap! Only trim if there is actual junk at start or end
+do_trim = (trim_start >= 1.5 or (video_duration - trim_end) >= 2.0)
 
 if do_trim:
-    print(f"✂️ [AI Director Auto-Trim]: Optimized for Shorts/Reels -> [{trim_start:.2f}s to {trim_end:.2f}s] (Duration: {trim_end - trim_start:.2f}s)")
+    print(f"✂️ [AI Director Smart-Trim]: Removed edge junk -> [{trim_start:.2f}s to {trim_end:.2f}s] (Kept: {trim_end - trim_start:.2f}s of {video_duration:.2f}s)")
 else:
-    print(f"✂️ [AI Director Auto-Trim]: Whole video looks engaging, keeping full {video_duration:.2f}s.")
+    print(f"✂️ [AI Director Smart-Trim]: Entire video is engaging, preserving 100% full duration ({video_duration:.2f}s).")
 
 # Strictly clamp color values to safe ranges
 try:
