@@ -44,14 +44,13 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Verify Pre-installed FFmpeg (0.1s Fast Check)
-        run: |
-          if command -v ffmpeg &> /dev/null; then
-            echo "⚡ FFmpeg already pre-installed on GitHub runner! Skipping apt download."
-            ffmpeg -version | head -n 1
-          else
-            sudo apt-get update && sudo apt-get install -y ffmpeg
-          fi
+      - name: Setup Fast FFmpeg (Instant Setup on ubuntu-latest)
+        uses: AnimMouse/setup-ffmpeg@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify FFmpeg
+        run: ffmpeg -version | head -n 1
 
       - name: Cache Python Virtual Environment (Zero Re-download)
         uses: actions/cache@v4
@@ -90,6 +89,7 @@ jobs:
           INPUT_AREA_UNIT: ${{ github.event.client_payload.area_unit || inputs.area_unit }}
           INPUT_TITLE: ${{ github.event.client_payload.title || inputs.title }}
           INPUT_PROPERTY_ID: ${{ github.event.client_payload.property_id || inputs.property_id }}
+          PYTHONUNBUFFERED: "1"
         run: |
           source ~/.venv/bin/activate
           if [ -d "github-upload" ]; then
