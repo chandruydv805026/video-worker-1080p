@@ -474,6 +474,7 @@ print(f"🎉 1080p VIDEO STAMPED SUCCESSFULLY in {time.time() - t_stamp:.2f}s! S
 # 6B. Upload Stamped 1080p Video to Cloudinary
 # ==========================================
 stamped_cloudinary_url = None
+stamped_cloudinary_public_id = None
 if VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY_API_SECRET:
     try:
         import hashlib
@@ -490,8 +491,9 @@ if VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY
                 "signature": c_sig
             }, files={"file": f}, timeout=180).json()
         stamped_cloudinary_url = c_res.get("secure_url")
+        stamped_cloudinary_public_id = c_res.get("public_id")
         if stamped_cloudinary_url:
-            print(f"✅ Stamped 1080p uploaded to Cloudinary in {time.time() - t_c:.2f}s!")
+            print(f"✅ Stamped 1080p uploaded to Cloudinary in {time.time() - t_c:.2f}s! (Public ID: {stamped_cloudinary_public_id})")
             print(f"🔗 Cloudinary Master URL: {stamped_cloudinary_url}")
     except Exception as ec:
         print(f"⚠️ Cloudinary upload warning: {ec}")
@@ -739,15 +741,15 @@ if MONGODB_URI and PROPERTY_ID:
             "socialLinks.updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         }
 
-        if stamped_cloudinary_url:
-            update_set["brandedVideoUrl"] = stamped_cloudinary_url
-            print(f"🔗 Updated Branded Video URL: {stamped_cloudinary_url}")
-
         if video_id:
             yt_link = f"https://youtu.be/{video_id}"
             update_set["socialLinks.youtube"] = yt_link
             update_set["videoUrl"] = yt_link
-            print(f"🔗 Updated YouTube: {yt_link}")
+            update_set["brandedVideoUrl"] = yt_link
+            print(f"🔗 Updated YouTube & Branded URL: {yt_link}")
+        elif stamped_cloudinary_url:
+            update_set["brandedVideoUrl"] = stamped_cloudinary_url
+            print(f"🔗 Updated Branded Video URL: {stamped_cloudinary_url}")
 
         if reel_id:
             ig_link = f"https://www.instagram.com/reel/{reel_id}/"
@@ -769,26 +771,48 @@ else:
 
 
 # ==========================================
-# 9. Cloudinary Raw Video Cleanup (Storage Bachat)
+# 9. Cloudinary Complete Cleanup (Old Raw & New Stamped Videos Deleted - Zero MB Left)
 # ==========================================
-if video_id and VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY_API_SECRET:
+print("\n" + "=" * 60)
+print("🧹 CLEANING UP CLOUDINARY STORAGE (ZERO MB LEFT)...")
+print("=" * 60)
+
+if VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY_API_SECRET:
     try:
         import hashlib
-        m = re.search(r"/upload/(?:v\d+/)?([^/.]+)", VIDEO_URL)
-        if m:
-            pub_id = m.group(1)
+
+        def destroy_cld_video(p_id, label):
+            if not p_id:
+                return
             ts = str(int(time.time()))
-            to_sign = f"public_id={pub_id}&timestamp={ts}{VIDEO_CLOUDINARY_API_SECRET}"
+            to_sign = f"public_id={p_id}&timestamp={ts}{VIDEO_CLOUDINARY_API_SECRET}"
             sig = hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
             del_url = f"https://api.cloudinary.com/v1_1/{VIDEO_CLOUDINARY_CLOUD_NAME}/video/destroy"
             p = {
-                "public_id": pub_id,
+                "public_id": p_id,
                 "timestamp": ts,
                 "api_key": VIDEO_CLOUDINARY_API_KEY,
                 "signature": sig
             }
-            del_res = requests.post(del_url, data=p, timeout=15)
-            print(f"🗑️ Cloudinary raw video cleanup: {del_res.status_code} ({del_res.json().get('result', '')})")
+            del_res = requests.post(del_url, data=p, timeout=20)
+            res_json = del_res.json()
+            print(f"🗑️ [{label} Video Cleanup]: {p_id} -> {del_res.status_code} ({res_json.get('result', '')})")
+
+        # 1. Delete Old Raw Video
+        raw_m = re.search(r"/upload/(?:v\d+/)?([^/.]+)", VIDEO_URL)
+        if raw_m:
+            destroy_cld_video(raw_m.group(1), "Old Raw")
+
+        # 2. Delete New Stamped Video
+        if stamped_cloudinary_public_id:
+            destroy_cld_video(stamped_cloudinary_public_id, "New Stamped")
+        elif stamped_cloudinary_url:
+            stamped_m = re.search(r"/upload/(?:v\d+/)?([^/.]+)", stamped_cloudinary_url)
+            if stamped_m:
+                destroy_cld_video(stamped_m.group(1), "New Stamped")
+
+        print("✅ Cloudinary 100% clean! Both old raw and new stamped videos deleted successfully.")
+
     except Exception as e_cld:
         print(f"ℹ️ Cloudinary cleanup notice: {e_cld}")
 
