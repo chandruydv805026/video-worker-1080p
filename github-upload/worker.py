@@ -40,6 +40,8 @@ def sanitize_location(loc_raw: str) -> str:
             seen.add(p_norm)
             clean_parts.append(p)
     res = ", ".join(clean_parts)
+    if "ranchi" not in res.lower():
+        res = f"{res}, Ranchi"
     return res if res else "Ranchi"
 
 LOCATION = sanitize_location(os.getenv("INPUT_LOCATION", "Ranchi"))
