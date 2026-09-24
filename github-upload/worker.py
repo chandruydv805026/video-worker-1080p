@@ -26,7 +26,23 @@ from PIL import Image, ImageDraw, ImageFont
 # 1. Config & Environment Variables
 # ==========================================
 VIDEO_URL = os.getenv("INPUT_VIDEO_URL", "").strip()
-LOCATION = os.getenv("INPUT_LOCATION", "Ranchi").strip()
+def sanitize_location(loc_raw: str) -> str:
+    if not loc_raw:
+        return "Ranchi"
+    import re
+    s = re.sub(r"^location\s*[:\-]\s*", "", str(loc_raw).strip(), flags=re.IGNORECASE)
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    seen = set()
+    clean_parts = []
+    for p in parts:
+        p_norm = p.lower()
+        if p_norm not in seen:
+            seen.add(p_norm)
+            clean_parts.append(p)
+    res = ", ".join(clean_parts)
+    return res if res else "Ranchi"
+
+LOCATION = sanitize_location(os.getenv("INPUT_LOCATION", "Ranchi"))
 AREA = os.getenv("INPUT_AREA", "5").strip()
 AREA_UNIT = os.getenv("INPUT_AREA_UNIT", "dismil").strip()
 TITLE = os.getenv("INPUT_TITLE", "Prime Property in Ranchi").strip()
