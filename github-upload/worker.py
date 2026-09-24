@@ -30,16 +30,27 @@ def sanitize_location(loc_raw: str) -> str:
     if not loc_raw:
         return "Ranchi"
     import re
-    s = re.sub(r"^location\s*[:\-]\s*", "", str(loc_raw).strip(), flags=re.IGNORECASE)
+    # 1. Clean HTML/special brackets and illegal characters
+    s = re.sub(r"<[^>]+>", "", str(loc_raw))
+    s = re.sub(r"[^a-zA-Z0-9\s,\-\./&]", " ", s)
+    s = re.sub(r"^location\s*[:\-]\s*", "", s.strip(), flags=re.IGNORECASE)
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r",+", ",", s)
     parts = [p.strip() for p in s.split(",") if p.strip()]
     seen = set()
     clean_parts = []
     for p in parts:
         p_norm = p.lower()
-        if p_norm not in seen:
+        if p_norm not in seen and re.search(r"[a-zA-Z0-9]", p):
             seen.add(p_norm)
             clean_parts.append(p)
     res = ", ".join(clean_parts)
+    # If no valid words found (e.g. only garbage symbols was entered), fallback to Ranchi
+    if not re.search(r"[a-zA-Z0-9]", res) or len(res) < 3:
+        return "Ranchi"
+    # Cap length so badge never overflows screen
+    if len(res) > 40:
+        res = res[:40].rsplit(" ", 1)[0]
     if "ranchi" not in res.lower():
         res = f"{res}, Ranchi"
     return res if res else "Ranchi"
