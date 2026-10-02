@@ -26,36 +26,7 @@ from PIL import Image, ImageDraw, ImageFont
 # 1. Config & Environment Variables
 # ==========================================
 VIDEO_URL = os.getenv("INPUT_VIDEO_URL", "").strip()
-def sanitize_location(loc_raw: str) -> str:
-    if not loc_raw:
-        return "Ranchi"
-    import re
-    # 1. Clean HTML/special brackets and illegal characters
-    s = re.sub(r"<[^>]+>", "", str(loc_raw))
-    s = re.sub(r"[^a-zA-Z0-9\s,\-\./&]", " ", s)
-    s = re.sub(r"^location\s*[:\-]\s*", "", s.strip(), flags=re.IGNORECASE)
-    s = re.sub(r"\s+", " ", s)
-    s = re.sub(r",+", ",", s)
-    parts = [p.strip() for p in s.split(",") if p.strip()]
-    seen = set()
-    clean_parts = []
-    for p in parts:
-        p_norm = p.lower()
-        if p_norm not in seen and re.search(r"[a-zA-Z0-9]", p):
-            seen.add(p_norm)
-            clean_parts.append(p)
-    res = ", ".join(clean_parts)
-    # If no valid words found (e.g. only garbage symbols was entered), fallback to Ranchi
-    if not re.search(r"[a-zA-Z0-9]", res) or len(res) < 3:
-        return "Ranchi"
-    # Cap length so badge never overflows screen
-    if len(res) > 40:
-        res = res[:40].rsplit(" ", 1)[0]
-    if "ranchi" not in res.lower():
-        res = f"{res}, Ranchi"
-    return res if res else "Ranchi"
-
-LOCATION = sanitize_location(os.getenv("INPUT_LOCATION", "Ranchi"))
+LOCATION = os.getenv("INPUT_LOCATION", "Ranchi").strip()
 AREA = os.getenv("INPUT_AREA", "5").strip()
 AREA_UNIT = os.getenv("INPUT_AREA_UNIT", "dismil").strip()
 TITLE = os.getenv("INPUT_TITLE", "Prime Property in Ranchi").strip()
@@ -149,6 +120,86 @@ if "youtu.be" in VIDEO_URL or "youtube.com" in VIDEO_URL:
     print("🎉 YouTube video already live and property synced! Worker finished safely.")
     print("=" * 60)
     sys.exit(0)
+
+
+# ==========================================
+# 1C. Distributed Mutex Lock & Duplicate Upload Blocker (MongoDB)
+# ==========================================
+if MONGODB_URI and PROPERTY_ID:
+    try:
+        from pymongo import MongoClient
+        from bson import ObjectId
+
+        print(f"\n🔒 Checking MongoDB Lock for Property {PROPERTY_ID}...")
+        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
+        db = client.get_default_database()
+        if db is None or db.name == "admin":
+            db = client["test"]
+
+        filter_query = {}
+        if ObjectId.is_valid(PROPERTY_ID):
+            filter_query = {"$or": [{"_id": ObjectId(PROPERTY_ID)}, {"id": PROPERTY_ID}]}
+        else:
+            filter_query = {"id": PROPERTY_ID}
+
+        prop = db.properties.find_one(filter_query)
+        if prop:
+            sl = prop.get("socialLinks") or {}
+            existing_yt = sl.get("youtube") or prop.get("videoUrl", "")
+            current_status = sl.get("status")
+
+            # 1. Already published on YouTube?
+            if ("youtu.be" in str(existing_yt)) or ("youtube.com" in str(existing_yt)):
+                print(f"✅ [DUPLICATE PREVENTION] Property already published on YouTube: {existing_yt}!")
+                print("🛑 Exiting worker immediately to prevent duplicate YouTube uploads.")
+                sys.exit(0)
+
+            # 2. Already completed?
+            if current_status == "completed":
+                print(f"✅ [DUPLICATE PREVENTION] Property status is already 'completed'!")
+                print("🛑 Exiting worker immediately to prevent duplicate YouTube uploads.")
+                sys.exit(0)
+
+            # 3. Already processing by another runner?
+            if current_status == "processing":
+                print(f"⚠️ [CONCURRENCY GUARD] Another worker is ALREADY processing Property {PROPERTY_ID}!")
+                print("🛑 Terminating this duplicate runner immediately.")
+                sys.exit(0)
+
+            # 4. Atomically acquire processing lock
+            lock_res = db.properties.update_one(
+                {
+                    "$and": [
+                        filter_query,
+                        {
+                            "$or": [
+                                {"socialLinks.status": {"$in": ["queued", None, "", "failed"]}},
+                                {"socialLinks": {"$exists": False}},
+                                {"socialLinks.status": {"$exists": False}}
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "$set": {
+                        "socialLinks.status": "processing",
+                        "socialLinks.lockedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                        "socialLinks.workerRunId": os.getenv("GITHUB_RUN_ID", "")
+                    }
+                }
+            )
+
+            if lock_res.modified_count == 0:
+                print(f"⚠️ [CONCURRENCY GUARD] Lock acquisition failed (already locked by concurrent runner).")
+                print("🛑 Terminating duplicate runner.")
+                sys.exit(0)
+
+            print(f"✅ Distributed lock acquired! Status set to 'processing'. Proceeding with render...")
+        else:
+            print(f"ℹ️ Property {PROPERTY_ID} not found in DB. Proceeding with render.")
+    except Exception as e_lock:
+        print(f"⚠️ Lock check notice: {e_lock}. Proceeding with render...")
+
 
 
 # ==========================================
@@ -280,7 +331,7 @@ Return ONLY valid JSON with EXACT keys:
   }}
 }}
 """
-        for m_name in ["gemini-3.8-flash", "gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-flash-latest"]:
+        for m_name in ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-flash-latest"]:
             try:
                 response = client.models.generate_content(
                     model=m_name,
