@@ -351,8 +351,8 @@ print("✅ 1080p Overlay image generated with exact 3 badges!")
 print(f"⚡ Stamping video at 1080p Full HD (1080x1920) using 4 CPU Cores...")
 t_stamp = time.time()
 
-# Gentle, natural clarity filter (no weird oversaturation)
-eq_filter = "eq=brightness=0.01:contrast=1.04:saturation=1.06"
+# 100% Original Natural Colors (Zero artificial saturation, zero brightness blowout)
+# The sky and grass remain 100% pure and authentic exactly as filmed!
 
 if not is_vertical:
     # HORIZONTAL/LANDSCAPE VIDEO:
@@ -361,19 +361,20 @@ if not is_vertical:
     # 3. Badges: Overlaid cleanly on top.
     print("🎬 Applying Cinematic Blurred Background layout for Horizontal Video...")
     fc = (
-        f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5,{eq_filter}[bg];"
-        f"[0:v]scale=1080:-2:force_original_aspect_ratio=decrease,{eq_filter}[fg];"
-        f"[bg][fg]overlay=(W-w)/2:(H-h)/2[base];"
-        f"[base][1:v]overlay=0:0[v]"
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5[bg];"
+        "[0:v]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2[base];"
+        "[base][1:v]overlay=0:0[v]"
     )
 else:
     # VERTICAL/PORTRAIT VIDEO:
     # Clean scaling to 1080x1920 without squashing or stretching.
     print("🎬 Applying Direct Full-Screen 9:16 layout for Vertical Video...")
     fc = (
-        f"[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,{eq_filter}[base];"
-        f"[base][1:v]overlay=0:0[v]"
+        "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1[base];"
+        "[base][1:v]overlay=0:0[v]"
     )
+
 
 ffmpeg_cmd = [
     "ffmpeg", "-y", "-threads", "4",
