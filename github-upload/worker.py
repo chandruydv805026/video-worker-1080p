@@ -48,6 +48,7 @@ META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "").strip()
 INSTAGRAM_USER_ID = os.getenv("INSTAGRAM_USER_ID", "17841467192830436").strip()
 FB_PAGE_ID = os.getenv("FB_PAGE_ID", "1397425480114961").strip()
 MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
+PROP_DOC = None
 
 # Cloudinary credentials for cleanup
 VIDEO_CLOUDINARY_CLOUD_NAME = os.getenv("VIDEO_CLOUDINARY_CLOUD_NAME", "").strip()
@@ -165,6 +166,7 @@ if MONGODB_URI and PROPERTY_ID:
             filter_query = {"id": PROPERTY_ID}
 
         prop = db.properties.find_one(filter_query)
+        PROP_DOC = prop
         if prop:
             if not RATE_TEXT and prop.get("rateText"):
                 RATE_TEXT = str(prop.get("rateText")).strip()
@@ -563,40 +565,112 @@ if VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY
 
 
 # ==========================================
-# 7. Generate Clean Descriptions (NO PHONE NUMBER!)
+# 7. Hyper-Local SEO & Geo-Targeting (Ranchi & Jharkhand)
 # ==========================================
 clean_unit = AREA_UNIT.capitalize() if AREA_UNIT else ""
 full_area_str = f"{AREA} {clean_unit}".strip() if clean_unit else str(AREA)
+
+# GPS Coordinates: Default to Ranchi Center (23.3441, 85.3096)
+GEO_LAT = 23.3441
+GEO_LNG = 85.3096
+GEO_LOCATION_NAME = f"{LOCATION}, Ranchi, Jharkhand, India"
+
+if PROP_DOC and isinstance(PROP_DOC.get("location"), dict):
+    p_loc = PROP_DOC.get("location", {})
+    if p_loc.get("lat") and p_loc.get("lng"):
+        try:
+            GEO_LAT = float(p_loc["lat"])
+            GEO_LNG = float(p_loc["lng"])
+        except Exception:
+            pass
+    if p_loc.get("label"):
+        GEO_LOCATION_NAME = f"{p_loc.get('label')}, Ranchi, Jharkhand, India"
+
+def build_hyperlocal_seo(loc_text, title_text, area_text):
+    loc_clean = loc_text.strip()
+    loc_lower = loc_clean.lower()
+
+    base_tags = [
+        "Ranchi", "Ranchi Real Estate", "Plots in Ranchi", "Land in Ranchi",
+        "Property in Ranchi", "Ranchi City", "Jharkhand", "Jharkhand Real Estate",
+        "Capital Prime", "Plot For Sale", "Commercial Land", "Residential Plot"
+    ]
+
+    area_specific_tags = []
+    area_specific_hashtags = []
+
+    locality_rules = [
+        (["ratu", "ratu chatti", "chatti"], ["Ratu", "Ratu Chatti", "NH75 Ranchi"], ["#Ratu", "#RatuChatti", "#NH75Ranchi", "#RingRoadRanchi"]),
+        (["pundag", "kathal more", "daladali"], ["Pundag", "Kathal More", "Daladali"], ["#Pundag", "#KathalMore", "#Daladali", "#Argora"]),
+        (["kanke", "boreya", "ring road"], ["Kanke", "Kanke Road", "Boreya"], ["#Kanke", "#KankeRoad", "#Boreya", "#PatratuRoad"]),
+        (["bariatu", "morabadi", "booty more"], ["Bariatu", "Morabadi", "Booty More"], ["#Bariatu", "#Morabadi", "#BootyMore"]),
+        (["hatia", "tupudana", "dhurwa", "hec"], ["Hatia", "Tupudana", "Dhurwa", "HEC"], ["#Hatia", "#Tupudana", "#Dhurwa", "#HECRanchi"]),
+        (["namkum", "tatisilwai"], ["Namkum", "Tatisilwai"], ["#Namkum", "#Tatisilwai", "#PuruliaRoad"]),
+        (["lalpur", "circular road", "kantatoli"], ["Lalpur", "Circular Road", "Kantatoli"], ["#Lalpur", "#Kantatoli", "#CircularRoad"]),
+        (["ormanjhi", "mesra"], ["Ormanjhi", "BIT Mesra"], ["#Ormanjhi", "#BITMesra", "#NH33"]),
+        (["nagri", "bero"], ["Nagri", "Bero"], ["#Nagri", "#RingRoadRanchi"]),
+    ]
+
+    for keywords, y_tags, h_tags in locality_rules:
+        if any(kw in loc_lower for kw in keywords):
+            area_specific_tags.extend(y_tags)
+            area_specific_hashtags.extend(h_tags)
+
+    words = [re.sub(r'[^a-zA-Z0-9]', '', w) for w in loc_clean.split() if len(w) > 2]
+    for w in words:
+        if w.lower() not in ["ranchi", "jharkhand", "near", "road", "chowk", "side"]:
+            area_specific_tags.append(f"{w} Ranchi")
+            area_specific_hashtags.append(f"#{w}Ranchi")
+
+    all_yt_tags = list(dict.fromkeys(area_specific_tags + base_tags))[:25]
+
+    core_hashtags = [
+        "#Ranchi", "#RanchiRealEstate", "#PlotsInRanchi", "#RanchiProperty",
+        "#LandInRanchi", "#JharkhandRealEstate", "#Jharkhand", "#CapitalPrime",
+        "#PlotForSale", "#RanchiCity", "#ReelsIndia"
+    ]
+    all_hashtags = list(dict.fromkeys(area_specific_hashtags + core_hashtags))[:18]
+
+    return all_yt_tags, all_hashtags
+
+yt_tags, local_hashtags = build_hyperlocal_seo(LOCATION, TITLE, full_area_str)
+hashtags_str = " ".join(local_hashtags)
 
 yt_clean_title = f"{TITLE} | {LOCATION} ({full_area_str}) #Shorts"
 if len(yt_clean_title) > 95:
     yt_clean_title = f"Prime Plot: {LOCATION} ({full_area_str}) #Shorts"
 
 yt_clean_desc = (
-    f"📍 Location: {LOCATION}\n"
+    f"📍 Location: {LOCATION}, Ranchi, Jharkhand\n"
     f"📐 Total Area: {full_area_str}\n"
-    f"📜 100% Verified Title & Clear Freehold Land\n\n"
-    f"🌐 For more details, visit official website:\n"
+    f"📜 100% Verified Title & Clear Freehold Land\n"
+    f"🏡 Best Investment Plot in Ranchi, Jharkhand\n\n"
+    f"🌐 Official Website & Inspection Details:\n"
     f"👉 https://capitalprime.co.in\n\n"
-    f"#RanchiRealEstate #PlotsInRanchi #CapitalPrime #LandInRanchi #PropertyInRanchi #Shorts"
+    f"{hashtags_str}"
 )
 
 ig_clean_caption = (
-    f"Prime Property in {LOCATION} 🏡\n"
-    f"📐 Total Area: {full_area_str}\n"
-    f"✅ 100% Verified Title & Clear Freehold Land\n\n"
-    f"🌐 Visit website for more details:\n"
+    f"📍 लोकेशन: {LOCATION}, राँची (झारखण्ड) 🏡\n"
+    f"📐 कुल एरिया: {full_area_str}\n"
+    f"✅ 100% वेरिफाइड एवं क्लियर टाइटल ज़मीन / प्लॉट\n"
+    f"🛣️ राँची और आसपास के प्राइम लोकेशन पर बेहतरीन प्रॉपर्टी डील\n\n"
+    f"🌐 पूरी जानकारी व प्लॉट विज़िट के लिए:\n"
     f"👉 https://capitalprime.co.in\n\n"
-    f"#RanchiRealEstate #PlotsInRanchi #CapitalPrime #Ranchi #Property #ReelsIndia #PlotForSale"
+    f"{hashtags_str}"
 )
 
 fb_clean_caption = (
-    f"Prime Property Available in {LOCATION} 🏡\n"
+    f"📍 Location: {LOCATION}, Ranchi, Jharkhand 🏡\n"
     f"📐 Total Area: {full_area_str}\n"
-    f"✅ 100% Clear Title & Verified Land\n\n"
-    f"🌐 More Details: https://capitalprime.co.in\n\n"
-    f"#Ranchi #RanchiRealEstate #PlotsInRanchi #CapitalPrime #FacebookReels #PropertyInRanchi"
+    f"✅ 100% Clear Title & Verified Land in Ranchi\n"
+    f"🛣️ Prime Connectivity & High Growth Investment in Jharkhand\n\n"
+    f"🌐 More Details & Site Inspection: https://capitalprime.co.in\n\n"
+    f"{hashtags_str}"
 )
+
+print(f"📍 [Geo-Targeting] Coordinates: ({GEO_LAT}, {GEO_LNG}) | Tag: {GEO_LOCATION_NAME}")
+print(f"🏷️ [Local Tags] {len(yt_tags)} tags & {len(local_hashtags)} hashtags generated for local audience.")
 
 
 # ==========================================
@@ -610,7 +684,7 @@ video_id = None
 reel_id = None
 vid_id = None
 
-# 8A. YouTube Upload
+# 8A. YouTube Upload with Official Geo-Tagging & Hindi Audience Lock
 def upload_to_youtube():
     global video_id
     token_json = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
@@ -651,15 +725,38 @@ def upload_to_youtube():
                 "snippet": {
                     "title": yt_clean_title,
                     "description": yt_clean_desc,
-                    "tags": ["RealEstate", "Ranchi", "CapitalPrime", "PlotsInRanchi", "Jharkhand"],
-                    "categoryId": "22"
+                    "tags": yt_tags,
+                    "categoryId": "22",
+                    "defaultLanguage": "hi",
+                    "defaultAudioLanguage": "hi"
+                },
+                "recordingDetails": {
+                    "locationDescription": GEO_LOCATION_NAME,
+                    "location": {
+                        "latitude": float(GEO_LAT),
+                        "longitude": float(GEO_LNG)
+                    }
                 },
                 "status": {"privacyStatus": "public", "selfDeclaredMadeForKids": False}
             }
             media = MediaFileUpload(str(OUTPUT_1080P_PATH), chunksize=1024*1024*5, resumable=True)
-            req = yt_service.videos().insert(part="snippet,status", body=body, media_body=media)
-            res_yt = req.execute()
-            video_id = res_yt.get("id")
+
+            try:
+                print(f"📍 Uploading to YouTube Shorts with official Geo-Tag: {GEO_LOCATION_NAME}...")
+                req = yt_service.videos().insert(part="snippet,status,recordingDetails", body=body, media_body=media)
+                res_yt = req.execute()
+                video_id = res_yt.get("id")
+            except Exception as e_geo:
+                print(f"⚠️ Geo-tagging notice: {e_geo}. Retrying with standard metadata...")
+                body_fallback = {
+                    "snippet": body["snippet"],
+                    "status": body["status"]
+                }
+                media_fallback = MediaFileUpload(str(OUTPUT_1080P_PATH), chunksize=1024*1024*5, resumable=True)
+                req_fallback = yt_service.videos().insert(part="snippet,status", body=body_fallback, media_body=media_fallback)
+                res_yt = req_fallback.execute()
+                video_id = res_yt.get("id")
+
             print(f"▶️ [YouTube Success] Video ID: {video_id} -> https://youtu.be/{video_id}")
         except Exception as e:
             print(f"⚠️ YouTube upload error: {e}")
