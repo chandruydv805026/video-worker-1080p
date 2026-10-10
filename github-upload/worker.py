@@ -36,9 +36,12 @@ AREA = os.getenv("INPUT_AREA", "5").strip()
 AREA_UNIT = os.getenv("INPUT_AREA_UNIT", "dismil").strip()
 TITLE = os.getenv("INPUT_TITLE", "Prime Property in Ranchi").strip()
 PROPERTY_ID = os.getenv("INPUT_PROPERTY_ID", "").strip()
-
 PRICE = os.getenv("INPUT_PRICE", "").strip()
 RATE_TEXT = os.getenv("INPUT_RATE_TEXT", "").strip()
+OLD_YOUTUBE = os.getenv("INPUT_OLD_YOUTUBE", "").strip()
+OLD_FACEBOOK = os.getenv("INPUT_OLD_FACEBOOK", "").strip()
+OLD_INSTAGRAM = os.getenv("INPUT_OLD_INSTAGRAM", "").strip()
+FORCE_REPUBLISH = os.getenv("INPUT_FORCE", "").lower() in ("true", "1")
 
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "").strip()
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "").strip()
@@ -186,20 +189,28 @@ if MONGODB_URI and PROPERTY_ID:
             existing_yt = sl.get("youtube") or prop.get("videoUrl", "")
             current_status = sl.get("status")
 
-            if ("youtu.be" in str(existing_yt)) or ("youtube.com" in str(existing_yt)):
-                print(f"✅ [DUPLICATE PREVENTION] Property already published on YouTube: {existing_yt}!")
-                print("🛑 Exiting worker immediately.")
-                sys.exit(0)
+            if not OLD_YOUTUBE and sl.get("oldYoutube"):
+                OLD_YOUTUBE = str(sl.get("oldYoutube")).strip()
+            if not OLD_FACEBOOK and sl.get("oldFacebook"):
+                OLD_FACEBOOK = str(sl.get("oldFacebook")).strip()
+            if not OLD_INSTAGRAM and sl.get("oldInstagram"):
+                OLD_INSTAGRAM = str(sl.get("oldInstagram")).strip()
 
-            if current_status == "completed":
-                print(f"✅ [DUPLICATE PREVENTION] Property status is already 'completed'!")
-                print("🛑 Exiting worker immediately.")
-                sys.exit(0)
+            if not FORCE_REPUBLISH:
+                if ("youtu.be" in str(existing_yt)) or ("youtube.com" in str(existing_yt)):
+                    print(f"✅ [DUPLICATE PREVENTION] Property already published on YouTube: {existing_yt}!")
+                    print("🛑 Exiting worker immediately.")
+                    sys.exit(0)
 
-            if current_status == "processing":
-                print(f"⚠️ [CONCURRENCY GUARD] Another worker is ALREADY processing Property {PROPERTY_ID}!")
-                print("🛑 Terminating duplicate runner.")
-                sys.exit(0)
+                if current_status == "completed":
+                    print(f"✅ [DUPLICATE PREVENTION] Property status is already 'completed'!")
+                    print("🛑 Exiting worker immediately.")
+                    sys.exit(0)
+
+                if current_status == "processing":
+                    print(f"⚠️ [CONCURRENCY GUARD] Another worker is ALREADY processing Property {PROPERTY_ID}!")
+                    print("🛑 Terminating duplicate runner.")
+                    sys.exit(0)
 
             lock_res = db.properties.update_one(
                 {
@@ -627,6 +638,15 @@ def upload_to_youtube():
 
             yt_service = build("youtube", "v3", credentials=creds)
 
+            # Delete old video if present
+            if OLD_YOUTUBE:
+                try:
+                    print(f"🗑️ Deleting previous YouTube video: {OLD_YOUTUBE}...")
+                    yt_service.videos().delete(id=OLD_YOUTUBE).execute()
+                    print(f"✅ Successfully deleted old YouTube video: {OLD_YOUTUBE}")
+                except Exception as e_del_yt:
+                    print(f"⚠️ YouTube deletion notice: {e_del_yt}")
+
             body = {
                 "snippet": {
                     "title": yt_clean_title,
@@ -652,6 +672,14 @@ def upload_to_facebook():
     page_token = FB_PAGE_ACCESS_TOKEN or META_ACCESS_TOKEN
     if page_token and FB_PAGE_ID:
         try:
+            if OLD_FACEBOOK:
+                try:
+                    print(f"🗑️ Deleting previous Facebook Reel: {OLD_FACEBOOK}...")
+                    del_f = requests.delete(f"https://graph.facebook.com/v21.0/{OLD_FACEBOOK}?access_token={page_token}", timeout=15)
+                    print(f"✅ Facebook deletion status: {del_f.status_code}")
+                except Exception as e_del_fb:
+                    print(f"⚠️ Facebook deletion notice: {e_del_fb}")
+
             print(f"\n📘 [Facebook Reels] Initializing Reel on Page {FB_PAGE_ID}...")
             init_url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/video_reels"
             init_res = requests.post(init_url, params={"upload_phase": "start", "access_token": page_token}, timeout=30).json()
@@ -710,6 +738,14 @@ def upload_to_instagram():
     base_meta_token = META_ACCESS_TOKEN or FB_PAGE_ACCESS_TOKEN
     if base_meta_token and INSTAGRAM_USER_ID:
         try:
+            if OLD_INSTAGRAM:
+                try:
+                    print(f"🗑️ Deleting previous Instagram Reel: {OLD_INSTAGRAM}...")
+                    del_i = requests.delete(f"https://graph.facebook.com/v21.0/{OLD_INSTAGRAM}?access_token={base_meta_token}", timeout=15)
+                    print(f"✅ Instagram deletion status: {del_i.status_code}")
+                except Exception as e_del_ig:
+                    print(f"⚠️ Instagram deletion notice: {e_del_ig}")
+
             is_ready = False
 
             # Method 1: Cloud-to-Cloud Ingestion from Cloudinary
