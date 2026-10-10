@@ -98,7 +98,10 @@ if "youtu.be" in VIDEO_URL or "youtube.com" in VIDEO_URL:
             from bson import ObjectId
             
             client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
-            db = client.get_default_database()
+            try:
+                db = client.get_default_database()
+            except Exception:
+                db = None
             if db is None or db.name == "admin":
                 db = client["test"]
             
@@ -136,7 +139,10 @@ if MONGODB_URI and PROPERTY_ID:
 
         print(f"\n🔒 Checking MongoDB Lock for Property {PROPERTY_ID}...")
         client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
-        db = client.get_default_database()
+        try:
+            db = client.get_default_database()
+        except Exception:
+            db = None
         if db is None or db.name == "admin":
             db = client["test"]
 
@@ -698,7 +704,10 @@ if MONGODB_URI and PROPERTY_ID:
         print("=" * 60)
 
         client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=8000)
-        db = client.get_default_database()
+        try:
+            db = client.get_default_database()
+        except Exception:
+            db = None
         if db is None or db.name == "admin":
             db = client["test"]
 
