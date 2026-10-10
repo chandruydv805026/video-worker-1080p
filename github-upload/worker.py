@@ -255,6 +255,54 @@ TARGET_H = 1920
 print(f"📐 Detected Raw Dimensions: {rw}x{rh} (Vertical: {is_vertical}, Audio: {has_audio}, Duration: {video_duration:.1f}s)")
 print(f"🎯 Target Canvas: {TARGET_W}x{TARGET_H} (Full HD Vertical for Shorts/Reels)")
 
+# 3B. Detect letterboxing (black bars baked into video)
+is_letterboxed = False
+crop_y = 0
+crop_h = rh
+sample_frame_path = WORK_DIR / "sample_probe.jpg"
+
+if is_vertical:
+    probe_frame_cmd = [
+        "ffmpeg", "-y", "-ss", "1.0", "-i", str(INPUT_PATH),
+        "-vframes", "1", "-q:v", "2", str(sample_frame_path)
+    ]
+    subprocess.run(probe_frame_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if sample_frame_path.exists():
+        try:
+            im = Image.open(sample_frame_path).convert("L")
+            sw, sh = im.size
+            top_box = im.crop((int(sw * 0.15), int(sh * 0.02), int(sw * 0.85), int(sh * 0.15)))
+            top_avg = sum(top_box.tobytes()) / (top_box.width * top_box.height)
+            bot_box = im.crop((int(sw * 0.15), int(sh * 0.85), int(sw * 0.85), int(sh * 0.98)))
+            bot_avg = sum(bot_box.tobytes()) / (bot_box.width * bot_box.height)
+            mid_box = im.crop((int(sw * 0.15), int(sh * 0.4), int(sw * 0.85), int(sh * 0.6)))
+            mid_avg = sum(mid_box.tobytes()) / (mid_box.width * mid_box.height)
+
+            print(f"📊 Letterbox probe: Top={top_avg:.1f}, Mid={mid_avg:.1f}, Bot={bot_avg:.1f}")
+            if (top_avg < 25 or bot_avg < 30) and (mid_avg > top_avg + 25):
+                x_s, x_e = int(sw * 0.2), int(sw * 0.8)
+                y1 = 0
+                for y in range(0, int(sh * 0.45), 4):
+                    strip = im.crop((x_s, y, x_e, y + 4))
+                    if sum(strip.tobytes()) / (strip.width * strip.height) > 35:
+                        y1 = max(0, y - 2)
+                        break
+                y2 = sh
+                for y in range(sh - 4, int(sh * 0.55), -4):
+                    strip = im.crop((x_s, y, x_e, y + 4))
+                    if sum(strip.tobytes()) / (strip.width * strip.height) > 35:
+                        y2 = min(sh, y + 4)
+                        break
+                active_h = y2 - y1
+                if int(sh * 0.25) <= active_h <= int(sh * 0.85):
+                    is_letterboxed = True
+                    scale_factor = rh / sh
+                    crop_y = int(y1 * scale_factor)
+                    crop_h = int(active_h * scale_factor)
+                    print(f"🎯 Letterbox detected! Active video: y={crop_y}, h={crop_h} (Total H={rh})")
+        except Exception as e_lb:
+            print(f"⚠️ Letterbox probe notice: {e_lb}")
+
 
 # ==========================================
 # 4. Generate Clean 3-Badge Overlay (Exact User Spec)
@@ -265,13 +313,14 @@ draw = ImageDraw.Draw(img)
 
 # Clean, exact labels without duplicates
 loc_clean = f"Location: {LOCATION}" if not LOCATION.lower().startswith("location") else LOCATION
-full_area = f"{AREA} {AREA_UNIT}".strip()
+clean_unit = AREA_UNIT.capitalize() if AREA_UNIT else ""
+full_area = f"{AREA} {clean_unit}".strip() if clean_unit else str(AREA)
 area_clean = f"Total Area: {full_area}" if not full_area.lower().startswith("total area") else full_area
 web_clean = "Visit: capitalprime.co.in"
 
 # Position badges in the top zone
-if is_vertical:
-    # On vertical videos, keep in top 6%
+if is_vertical and not is_letterboxed:
+    # On full-screen vertical videos, keep in top 6%
     init_s1, min_s1 = 48, 26
     init_s2, min_s2 = 40, 22
     init_s3, min_s3 = 34, 20
@@ -281,8 +330,16 @@ if is_vertical:
     radius = 16
     y_start = int(TARGET_H * 0.06)
 else:
-    # On horizontal videos with blurred background, center video is in the middle (~650 to 1260)
-    # So top badges sit luxuriously in the top blurred space (~140 to 450), NEVER touching the video!
+    # On horizontal videos OR letterboxed videos with blurred background,
+    # top badges sit luxuriously in the top blurred space (~140 to 450), NEVER touching the video!
+    init_s1, min_s1 = 46, 26
+    init_s2, min_s2 = 38, 22
+    init_s3, min_s3 = 32, 20
+    v_pad = 13
+    h_pad = 28
+    gap = 16
+    radius = 16
+    y_start = int(TARGET_H * 0.08)
     init_s1, min_s1 = 46, 26
     init_s2, min_s2 = 38, 22
     init_s3, min_s3 = 32, 20
@@ -360,7 +417,16 @@ t_stamp = time.time()
 # 100% Original Natural Colors (Zero artificial saturation, zero brightness blowout)
 # The sky and grass remain 100% pure and authentic exactly as filmed!
 
-if not is_vertical:
+if is_letterboxed:
+    print("🎬 Applying Auto-Cropped Cinematic Blurred Background for Letterboxed Video...")
+    fc = (
+        f"[0:v]crop=in_w:{crop_h}:0:{crop_y}[active];"
+        "[active]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:5[bg];"
+        "[active]scale=1080:-2:force_original_aspect_ratio=decrease[fg];"
+        "[bg][fg]overlay=(W-w)/2:(H-h)/2[base];"
+        "[base][1:v]overlay=0:0[v]"
+    )
+elif not is_vertical:
     # HORIZONTAL/LANDSCAPE VIDEO:
     # 1. Background: Zoomed, cropped to 1080x1920, and smoothly blurred (no ugly black bars!)
     # 2. Foreground: Scaled to width 1080 with original aspect ratio, placed in the center.
@@ -443,13 +509,16 @@ if VIDEO_CLOUDINARY_CLOUD_NAME and VIDEO_CLOUDINARY_API_KEY and VIDEO_CLOUDINARY
 # ==========================================
 # 7. Generate Clean Descriptions (NO PHONE NUMBER!)
 # ==========================================
-yt_clean_title = f"{TITLE} | {LOCATION} ({AREA} {AREA_UNIT}) #Shorts"
+clean_unit = AREA_UNIT.capitalize() if AREA_UNIT else ""
+full_area_str = f"{AREA} {clean_unit}".strip() if clean_unit else str(AREA)
+
+yt_clean_title = f"{TITLE} | {LOCATION} ({full_area_str}) #Shorts"
 if len(yt_clean_title) > 95:
-    yt_clean_title = f"Prime Plot: {LOCATION} ({AREA} {AREA_UNIT}) #Shorts"
+    yt_clean_title = f"Prime Plot: {LOCATION} ({full_area_str}) #Shorts"
 
 yt_clean_desc = (
     f"📍 Location: {LOCATION}\n"
-    f"📐 Total Area: {AREA} {AREA_UNIT}\n"
+    f"📐 Total Area: {full_area_str}\n"
     f"📜 100% Verified Title & Clear Freehold Land\n\n"
     f"🌐 For more details, visit official website:\n"
     f"👉 https://capitalprime.co.in\n\n"
@@ -458,7 +527,7 @@ yt_clean_desc = (
 
 ig_clean_caption = (
     f"Prime Property in {LOCATION} 🏡\n"
-    f"📐 Total Area: {AREA} {AREA_UNIT}\n"
+    f"📐 Total Area: {full_area_str}\n"
     f"✅ 100% Verified Title & Clear Freehold Land\n\n"
     f"🌐 Visit website for more details:\n"
     f"👉 https://capitalprime.co.in\n\n"
@@ -467,7 +536,7 @@ ig_clean_caption = (
 
 fb_clean_caption = (
     f"Prime Property Available in {LOCATION} 🏡\n"
-    f"📐 Total Area: {AREA} {AREA_UNIT}\n"
+    f"📐 Total Area: {full_area_str}\n"
     f"✅ 100% Clear Title & Verified Land\n\n"
     f"🌐 More Details: https://capitalprime.co.in\n\n"
     f"#Ranchi #RanchiRealEstate #PlotsInRanchi #CapitalPrime #FacebookReels #PropertyInRanchi"
