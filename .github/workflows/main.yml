@@ -81,6 +81,8 @@ jobs:
           INPUT_AREA_UNIT: ${{ github.event.client_payload.area_unit || inputs.area_unit }}
           INPUT_TITLE: ${{ github.event.client_payload.title || inputs.title }}
           INPUT_PROPERTY_ID: ${{ github.event.client_payload.property_id || inputs.property_id }}
+          INPUT_RATE_TEXT: ${{ github.event.client_payload.rate_text || inputs.rate_text }}
+          INPUT_PRICE: ${{ github.event.client_payload.price || inputs.price }}
           PYTHONUNBUFFERED: "1"
         run: |
           if [ -d "github-upload" ]; then
