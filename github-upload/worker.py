@@ -37,6 +37,9 @@ AREA_UNIT = os.getenv("INPUT_AREA_UNIT", "dismil").strip()
 TITLE = os.getenv("INPUT_TITLE", "Prime Property in Ranchi").strip()
 PROPERTY_ID = os.getenv("INPUT_PROPERTY_ID", "").strip()
 
+PRICE = os.getenv("INPUT_PRICE", "").strip()
+RATE_TEXT = os.getenv("INPUT_RATE_TEXT", "").strip()
+
 FB_PAGE_ACCESS_TOKEN = os.getenv("FB_PAGE_ACCESS_TOKEN", "").strip()
 META_ACCESS_TOKEN = os.getenv("META_ACCESS_TOKEN", "").strip()
 INSTAGRAM_USER_ID = os.getenv("INSTAGRAM_USER_ID", "17841467192830436").strip()
@@ -65,12 +68,18 @@ INPUT_PATH = WORK_DIR / "raw_input.mp4"
 OUTPUT_1080P_PATH = WORK_DIR / "stamped_1080p.mp4"
 OVERLAY_PNG = WORK_DIR / "overlay_1080p.png"
 
-# Search for font
+# Search for fonts
 FONT_PATH = Path("assets/fonts/Montserrat-Bold.ttf")
 if not FONT_PATH.exists():
     FONT_PATH = Path("github-upload/assets/fonts/Montserrat-Bold.ttf")
 if not FONT_PATH.exists():
     FONT_PATH = Path("Montserrat-Bold.ttf")
+
+BRUSH_FONT_PATH = Path("assets/fonts/PermanentMarker.ttf")
+if not BRUSH_FONT_PATH.exists():
+    BRUSH_FONT_PATH = Path("github-upload/assets/fonts/PermanentMarker.ttf")
+if not BRUSH_FONT_PATH.exists():
+    BRUSH_FONT_PATH = Path("PermanentMarker.ttf")
 
 
 # ==========================================
@@ -154,6 +163,25 @@ if MONGODB_URI and PROPERTY_ID:
 
         prop = db.properties.find_one(filter_query)
         if prop:
+            if not RATE_TEXT and prop.get("rateText"):
+                RATE_TEXT = str(prop.get("rateText")).strip()
+            if not RATE_TEXT and prop.get("price"):
+                try:
+                    p_val = float(prop.get("price", 0))
+                    a_val = float(prop.get("area", 1))
+                    a_unit = str(prop.get("areaUnit", "")).lower()
+                    total_dismil = a_val * 100.0 if "acre" in a_unit else a_val
+                    if total_dismil > 0 and p_val > 0:
+                        rate_per_dismil = p_val / total_dismil
+                        if rate_per_dismil >= 100000:
+                            lakhs = rate_per_dismil / 100000.0
+                            if lakhs == int(lakhs):
+                                RATE_TEXT = f"RATE {int(lakhs)} LAKH PER DECIMIL"
+                            else:
+                                RATE_TEXT = f"RATE {lakhs:.2f} LAKH PER DECIMIL"
+                except Exception:
+                    pass
+
             sl = prop.get("socialLinks") or {}
             existing_yt = sl.get("youtube") or prop.get("videoUrl", "")
             current_status = sl.get("status")
@@ -340,14 +368,6 @@ else:
     gap = 16
     radius = 16
     y_start = int(TARGET_H * 0.08)
-    init_s1, min_s1 = 46, 26
-    init_s2, min_s2 = 38, 22
-    init_s3, min_s3 = 32, 20
-    v_pad = 13
-    h_pad = 28
-    gap = 16
-    radius = 16
-    y_start = int(TARGET_H * 0.08)
 
 max_pill_w = TARGET_W - 140
 
@@ -359,15 +379,23 @@ def load_font(sz):
             pass
     return ImageFont.load_default()
 
-def fit_text_font(draw_obj, text, initial_size, min_size, max_w):
+def load_brush_font(sz):
+    if BRUSH_FONT_PATH.exists():
+        try:
+            return ImageFont.truetype(str(BRUSH_FONT_PATH), sz)
+        except Exception:
+            pass
+    return load_font(sz)
+
+def fit_text_font(draw_obj, text, initial_size, min_size, max_w, loader=load_font):
     sz = initial_size
-    f = load_font(sz)
+    f = loader(sz)
     bbox = draw_obj.textbbox((0, 0), text, font=f)
     tw = bbox[2] - bbox[0]
     th = bbox[3] - bbox[1]
     while tw > max_w and sz > min_size:
         sz -= 2
-        f = load_font(sz)
+        f = loader(sz)
         bbox = draw_obj.textbbox((0, 0), text, font=f)
         tw = bbox[2] - bbox[0]
         th = bbox[3] - bbox[1]
@@ -404,8 +432,25 @@ for text, init_sz, min_sz, text_color in badges_spec:
 
     current_y += th + (2 * v_pad) + gap
 
+# Signature Price in Permanent Marker brush font style
+if RATE_TEXT:
+    print(f"🎨 Rendering Signature Price in Permanent Marker style: '{RATE_TEXT}'")
+    brush_font, r_tw, r_th, r_bbox = fit_text_font(draw, RATE_TEXT, 52, 28, TARGET_W - 120, loader=load_brush_font)
+    r_x = (TARGET_W - r_tw) // 2
+    if is_vertical and not is_letterboxed:
+        r_y = int(TARGET_H * 0.88)
+    else:
+        # Perfectly centered in the bottom blurred area (between 1280 and 1920)
+        r_y = 1280 + (640 - r_th) // 2 - r_bbox[1]
+
+    # Draw dark shadow for contrast on any background
+    draw.text((r_x + 3, r_y + 3), RATE_TEXT, font=brush_font, fill=(0, 0, 0, 200))
+    # Crisp white text
+    draw.text((r_x, r_y), RATE_TEXT, font=brush_font, fill="#FFFFFF")
+    print(f"✅ Rendered signature price text at bottom: '{RATE_TEXT}'")
+
 img.save(OVERLAY_PNG, "PNG")
-print("✅ 1080p Overlay image generated with exact 3 badges!")
+print("✅ 1080p Overlay image generated with exact badges and signature price!")
 
 
 # ==========================================
