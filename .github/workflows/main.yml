@@ -83,6 +83,10 @@ jobs:
           INPUT_PROPERTY_ID: ${{ github.event.client_payload.property_id || inputs.property_id }}
           INPUT_RATE_TEXT: ${{ github.event.client_payload.rate_text || inputs.rate_text }}
           INPUT_PRICE: ${{ github.event.client_payload.price || inputs.price }}
+          INPUT_OLD_YOUTUBE: ${{ github.event.client_payload.old_youtube || inputs.old_youtube }}
+          INPUT_OLD_FACEBOOK: ${{ github.event.client_payload.old_facebook || inputs.old_facebook }}
+          INPUT_OLD_INSTAGRAM: ${{ github.event.client_payload.old_instagram || inputs.old_instagram }}
+          INPUT_FORCE: ${{ github.event.client_payload.force || inputs.force }}
           PYTHONUNBUFFERED: "1"
         run: |
           if [ -d "github-upload" ]; then
