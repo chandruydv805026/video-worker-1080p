@@ -43,6 +43,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'github-upload/requirements.txt'
 
       - name: Setup Fast FFmpeg (Instant Setup on ubuntu-latest)
         uses: AnimMouse/setup-ffmpeg@v1
@@ -52,23 +54,13 @@ jobs:
       - name: Verify FFmpeg
         run: ffmpeg -version | head -n 1
 
-      - name: Cache Python Virtual Environment (Zero Re-download)
-        uses: actions/cache@v4
-        id: venv-cache
-        with:
-          path: ~/.venv
-          key: venv-${{ runner.os }}-py312-${{ hashFiles('github-upload/requirements.txt') }}
-
-      - name: Install Python Dependencies (Runs ONLY on Cache Miss)
-        if: steps.venv-cache.outputs.cache-hit != 'true'
+      - name: Install Python Dependencies
         run: |
-          echo "📥 Cache miss: Installing dependencies into virtualenv..."
-          python -m venv ~/.venv
-          ~/.venv/bin/pip install --upgrade pip
+          python -m pip install --upgrade pip
           if [ -f "github-upload/requirements.txt" ]; then
-            ~/.venv/bin/pip install -r github-upload/requirements.txt
+            pip install -r github-upload/requirements.txt
           else
-            ~/.venv/bin/pip install google-genai pillow requests google-api-python-client google-auth-oauthlib pymongo
+            pip install pillow requests google-api-python-client google-auth-oauthlib pymongo
           fi
 
       - name: Execute 1080p Stamping & Multi-Platform Publishing
@@ -91,7 +83,6 @@ jobs:
           INPUT_PROPERTY_ID: ${{ github.event.client_payload.property_id || inputs.property_id }}
           PYTHONUNBUFFERED: "1"
         run: |
-          source ~/.venv/bin/activate
           if [ -d "github-upload" ]; then
             cd github-upload && python worker.py
           else
