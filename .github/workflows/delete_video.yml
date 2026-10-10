@@ -1,0 +1,120 @@
+name: Delete Video Everywhere
+
+on:
+  workflow_dispatch:
+    inputs:
+      youtube_id:
+        description: 'YouTube Video ID'
+        required: false
+        default: '5kHYraeJU98'
+      facebook_id:
+        description: 'Facebook Video ID'
+        required: false
+        default: '1766089067953992'
+      instagram_id:
+        description: 'Instagram Reel ID'
+        required: false
+        default: '18078223670708823'
+      property_id:
+        description: 'Property ID'
+        required: false
+        default: 'cp-18261'
+
+jobs:
+  delete-social:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: pip install requests google-api-python-client google-auth-oauthlib pymongo
+
+      - name: Delete Video Everywhere
+        env:
+          YOUTUBE_TOKEN_JSON: ${{ secrets.YOUTUBE_TOKEN_JSON }}
+          FB_PAGE_ACCESS_TOKEN: ${{ secrets.FB_PAGE_ACCESS_TOKEN }}
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          MONGODB_URI: ${{ secrets.MONGODB_URI }}
+          YT_ID: ${{ inputs.youtube_id }}
+          FB_ID: ${{ inputs.facebook_id }}
+          IG_ID: ${{ inputs.instagram_id }}
+          PROP_ID: ${{ inputs.property_id }}
+        run: |
+          python - << 'EOF'
+          import os, json, requests
+          from pymongo import MongoClient
+
+          yt_id = os.getenv("YT_ID", "").strip()
+          fb_id = os.getenv("FB_ID", "").strip()
+          ig_id = os.getenv("IG_ID", "").strip()
+          prop_id = os.getenv("PROP_ID", "").strip()
+
+          yt_token = os.getenv("YOUTUBE_TOKEN_JSON", "").strip()
+          fb_token = os.getenv("FB_PAGE_ACCESS_TOKEN", "").strip()
+          meta_token = os.getenv("META_ACCESS_TOKEN", "").strip()
+          mongo_uri = os.getenv("MONGODB_URI", "").strip()
+
+          # 1. Delete from YouTube
+          if yt_id and yt_token:
+              try:
+                  print(f"🗑️ Deleting YouTube video: {yt_id}...")
+                  from google.oauth2.credentials import Credentials
+                  from google.auth.transport.requests import Request
+                  from googleapiclient.discovery import build
+
+                  t_data = json.loads(yt_token)
+                  creds = Credentials(
+                      token=t_data.get("token"),
+                      refresh_token=t_data.get("refresh_token"),
+                      token_uri=t_data.get("token_uri", "https://oauth2.googleapis.com/token"),
+                      client_id=t_data.get("client_id"),
+                      client_secret=t_data.get("client_secret"),
+                      scopes=t_data.get("scopes", ["https://www.googleapis.com/auth/youtube.upload"])
+                  )
+                  if not creds.valid and creds.refresh_token:
+                      creds.refresh(Request())
+                  yt_service = build("youtube", "v3", credentials=creds)
+                  yt_service.videos().delete(id=yt_id).execute()
+                  print(f"✅ Successfully deleted YouTube video: {yt_id}")
+              except Exception as e:
+                  print(f"⚠️ YouTube delete error: {e}")
+
+          # 2. Delete from Facebook
+          page_token = fb_token or meta_token
+          if fb_id and page_token:
+              try:
+                  print(f"🗑️ Deleting Facebook video: {fb_id}...")
+                  r_fb = requests.delete(f"https://graph.facebook.com/v21.0/{fb_id}?access_token={page_token}", timeout=15)
+                  print(f"✅ Facebook delete status: {r_fb.status_code} - {r_fb.text}")
+              except Exception as e:
+                  print(f"⚠️ Facebook delete error: {e}")
+
+          # 3. Delete from Instagram
+          if ig_id and meta_token:
+              try:
+                  print(f"🗑️ Deleting Instagram Reel: {ig_id}...")
+                  r_ig = requests.delete(f"https://graph.facebook.com/v21.0/{ig_id}?access_token={meta_token}", timeout=15)
+                  print(f"✅ Instagram delete status: {r_ig.status_code} - {r_ig.text}")
+              except Exception as e:
+                  print(f"⚠️ Instagram delete error: {e}")
+
+          # 4. Clean up MongoDB
+          if prop_id and mongo_uri:
+              try:
+                  print(f"🗑️ Cleaning MongoDB property {prop_id}...")
+                  client = MongoClient(mongo_uri)
+                  db = client["test"]
+                  db.properties.update_one(
+                      {"id": prop_id},
+                      {
+                          "$unset": {"videoUrl": "", "socialLinks": ""},
+                          "$set": {"socialLinks.status": "deleted"}
+                      }
+                  )
+                  print(f"✅ Cleaned MongoDB property: {prop_id}")
+              except Exception as e:
+                  print(f"⚠️ MongoDB cleanup error: {e}")
+          EOF
