@@ -204,8 +204,8 @@ if MONGODB_URI and PROPERTY_ID:
                     print("🛑 Exiting worker immediately.")
                     sys.exit(0)
 
-                if current_status == "completed":
-                    print(f"✅ [DUPLICATE PREVENTION] Property status is already 'completed'!")
+                if current_status == "completed" and (("youtu.be" in str(existing_yt)) or ("youtube.com" in str(existing_yt))):
+                    print(f"✅ [DUPLICATE PREVENTION] Property already published on YouTube: {existing_yt}!")
                     print("🛑 Exiting worker immediately.")
                     sys.exit(0)
 
@@ -220,7 +220,7 @@ if MONGODB_URI and PROPERTY_ID:
                         filter_query,
                         {
                             "$or": [
-                                {"socialLinks.status": {"$in": ["queued", None, "", "failed"]}},
+                                {"socialLinks.status": {"$in": ["queued", None, "", "failed", "completed"]}},
                                 {"socialLinks": {"$exists": False}},
                                 {"socialLinks.status": {"$exists": False}}
                             ]
@@ -237,8 +237,7 @@ if MONGODB_URI and PROPERTY_ID:
             )
 
             if lock_res.modified_count == 0:
-                print(f"⚠️ [CONCURRENCY GUARD] Lock acquisition failed.")
-                sys.exit(0)
+                print(f"⚠️ [CONCURRENCY GUARD] Document already locked or marked, proceeding to process video...")
 
             print(f"✅ Distributed lock acquired! Status set to 'processing'.")
     except Exception as e_lock:
