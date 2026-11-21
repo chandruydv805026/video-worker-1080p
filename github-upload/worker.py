@@ -541,15 +541,27 @@ OUTRO_LOCAL_PATH = WORK_DIR / "outro_1080p.mp4"
 FINAL_STITCHED_PATH = WORK_DIR / "final_stitched_1080p.mp4"
 
 try:
-    print("\n🎬 Fetching High-Converting Call-to-Action Outro Video...")
+    print("\n🎬 Preparing High-Converting Call-to-Action Outro Video...")
     t_out = time.time()
-    r_out = requests.get(OUTRO_VIDEO_URL, stream=True, timeout=60)
-    if r_out.status_code == 200:
-        with open(OUTRO_LOCAL_PATH, "wb") as f_out:
-            for ch in r_out.iter_content(chunk_size=1024 * 1024):
-                if ch:
-                    f_out.write(ch)
-        print(f"✅ Outro video downloaded in {time.time() - t_out:.2f}s ({OUTRO_LOCAL_PATH.stat().st_size / (1024*1024):.2f} MB)")
+    local_asset = Path("assets/outro_1080p.mp4")
+    if not local_asset.exists():
+        local_asset = Path("github-upload/assets/outro_1080p.mp4")
+
+    if local_asset.exists() and local_asset.stat().st_size > 0:
+        import shutil
+        shutil.copy2(local_asset, OUTRO_LOCAL_PATH)
+        out_mb_size = OUTRO_LOCAL_PATH.stat().st_size / (1024*1024)
+        print(f"✅ Loaded local outro asset from repository ({out_mb_size:.2f} MB) in {time.time() - t_out:.2f}s!")
+    else:
+        print("☁️ Downloading outro asset from Cloudinary...")
+        r_out = requests.get(OUTRO_VIDEO_URL, stream=True, timeout=60)
+        if r_out.status_code == 200:
+            with open(OUTRO_LOCAL_PATH, "wb") as f_out:
+                for ch in r_out.iter_content(chunk_size=1024 * 1024):
+                    if ch:
+                        f_out.write(ch)
+            out_mb_size = OUTRO_LOCAL_PATH.stat().st_size / (1024*1024)
+            print(f"✅ Outro video downloaded in {time.time() - t_out:.2f}s ({out_mb_size:.2f} MB)") - t_out:.2f}s ({OUTRO_LOCAL_PATH.stat().st_size / (1024*1024):.2f} MB)")
 
         if OUTRO_LOCAL_PATH.exists() and OUTRO_LOCAL_PATH.stat().st_size > 0:
             print("🔗 Stitching Property Tour + Outro Video at 1080p Full HD...")
