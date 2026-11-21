@@ -571,48 +571,42 @@ try:
             p_chk = subprocess.run(["ffmpeg", "-i", str(OUTPUT_1080P_PATH)], capture_output=True, text=True, errors="replace")
             main_has_audio = "Audio:" in p_chk.stderr
 
-            if main_has_audio:
-                concat_cmd = [
-                    "ffmpeg", "-y", "-threads", "4",
-                    "-i", str(OUTPUT_1080P_PATH),
-                    "-i", str(OUTRO_LOCAL_PATH),
-                    "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]",
-                    "-map", "[v]",
-                    "-map", "[a]",
-                    "-c:v", "libx264",
-                    "-preset", "superfast",
-                    "-crf", "22",
-                    "-maxrate", "3500k",
-                    "-bufsize", "7000k",
-                    "-c:a", "aac",
-                    "-b:a", "128k",
-                    "-ar", "48000",
-                    "-pix_fmt", "yuv420p",
-                    "-movflags", "+faststart",
-                    str(FINAL_STITCHED_PATH)
-                ]
-            else:
-                concat_cmd = [
-                    "ffmpeg", "-y", "-threads", "4",
+            MAIN_VIDEO_FOR_CONCAT = OUTPUT_1080P_PATH
+            if not main_has_audio:
+                print("🔇 Main video has no audio, generating clean silent audio track...")
+                MAIN_WITH_SILENCE = WORK_DIR / "main_with_silent_audio.mp4"
+                silence_cmd = [
+                    "ffmpeg", "-y",
                     "-i", str(OUTPUT_1080P_PATH),
                     "-f", "lavfi", "-i", "anullsrc=cl=stereo:r=48000",
-                    "-i", str(OUTRO_LOCAL_PATH),
-                    "-filter_complex", "[0:v][1:a][2:v][2:a]concat=n=2:v=1:a=1[v][a]",
-                    "-map", "[v]",
-                    "-map", "[a]",
-                    "-c:v", "libx264",
-                    "-preset", "superfast",
-                    "-crf", "22",
-                    "-maxrate", "3500k",
-                    "-bufsize", "7000k",
+                    "-c:v", "copy",
                     "-c:a", "aac",
-                    "-b:a", "128k",
-                    "-ar", "48000",
-                    "-pix_fmt", "yuv420p",
-                    "-movflags", "+faststart",
                     "-shortest",
-                    str(FINAL_STITCHED_PATH)
+                    str(MAIN_WITH_SILENCE)
                 ]
+                p_sil = subprocess.run(silence_cmd, capture_output=True, text=True)
+                if p_sil.returncode == 0 and MAIN_WITH_SILENCE.exists():
+                    MAIN_VIDEO_FOR_CONCAT = MAIN_WITH_SILENCE
+
+            concat_cmd = [
+                "ffmpeg", "-y", "-threads", "4",
+                "-i", str(MAIN_VIDEO_FOR_CONCAT),
+                "-i", str(OUTRO_LOCAL_PATH),
+                "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]",
+                "-map", "[v]",
+                "-map", "[a]",
+                "-c:v", "libx264",
+                "-preset", "superfast",
+                "-crf", "22",
+                "-maxrate", "3500k",
+                "-bufsize", "7000k",
+                "-c:a", "aac",
+                "-b:a", "128k",
+                "-ar", "48000",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                str(FINAL_STITCHED_PATH)
+            ]
 
             p_cat = subprocess.run(concat_cmd, capture_output=True, text=True)
             if p_cat.returncode == 0 and FINAL_STITCHED_PATH.exists() and FINAL_STITCHED_PATH.stat().st_size > 0:
