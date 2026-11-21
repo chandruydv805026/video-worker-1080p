@@ -533,6 +533,88 @@ if p_res.returncode != 0 or not OUTPUT_1080P_PATH.exists() or OUTPUT_1080P_PATH.
 out_mb = OUTPUT_1080P_PATH.stat().st_size / (1024 * 1024)
 print(f"🎉 1080p VIDEO STAMPED SUCCESSFULLY in {time.time() - t_stamp:.2f}s! Size: {out_mb:.2f} MB")
 
+# ==========================================
+# 5B. Append Call-to-Action (CTA) Outro Video
+# ==========================================
+OUTRO_VIDEO_URL = "https://res.cloudinary.com/ievojsp6/video/upload/v1795233449/capital_prime_outro_1080p.mp4"
+OUTRO_LOCAL_PATH = WORK_DIR / "outro_1080p.mp4"
+FINAL_STITCHED_PATH = WORK_DIR / "final_stitched_1080p.mp4"
+
+try:
+    print("\n🎬 Fetching High-Converting Call-to-Action Outro Video...")
+    t_out = time.time()
+    r_out = requests.get(OUTRO_VIDEO_URL, stream=True, timeout=60)
+    if r_out.status_code == 200:
+        with open(OUTRO_LOCAL_PATH, "wb") as f_out:
+            for ch in r_out.iter_content(chunk_size=1024 * 1024):
+                if ch:
+                    f_out.write(ch)
+        print(f"✅ Outro video downloaded in {time.time() - t_out:.2f}s ({OUTRO_LOCAL_PATH.stat().st_size / (1024*1024):.2f} MB)")
+
+        if OUTRO_LOCAL_PATH.exists() and OUTRO_LOCAL_PATH.stat().st_size > 0:
+            print("🔗 Stitching Property Tour + Outro Video at 1080p Full HD...")
+            t_stitch = time.time()
+
+            # Check if stamped main video has audio
+            p_chk = subprocess.run(["ffmpeg", "-i", str(OUTPUT_1080P_PATH)], capture_output=True, text=True, errors="replace")
+            main_has_audio = "Audio:" in p_chk.stderr
+
+            if main_has_audio:
+                concat_cmd = [
+                    "ffmpeg", "-y", "-threads", "4",
+                    "-i", str(OUTPUT_1080P_PATH),
+                    "-i", str(OUTRO_LOCAL_PATH),
+                    "-filter_complex", "[0:v][0:a][1:v][1:a]concat=n=2:v=1:a=1[v][a]",
+                    "-map", "[v]",
+                    "-map", "[a]",
+                    "-c:v", "libx264",
+                    "-preset", "superfast",
+                    "-crf", "22",
+                    "-maxrate", "3500k",
+                    "-bufsize", "7000k",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-ar", "48000",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    str(FINAL_STITCHED_PATH)
+                ]
+            else:
+                concat_cmd = [
+                    "ffmpeg", "-y", "-threads", "4",
+                    "-i", str(OUTPUT_1080P_PATH),
+                    "-f", "lavfi", "-i", "anullsrc=cl=stereo:r=48000",
+                    "-i", str(OUTRO_LOCAL_PATH),
+                    "-filter_complex", "[0:v][1:a][2:v][2:a]concat=n=2:v=1:a=1[v][a]",
+                    "-map", "[v]",
+                    "-map", "[a]",
+                    "-c:v", "libx264",
+                    "-preset", "superfast",
+                    "-crf", "22",
+                    "-maxrate", "3500k",
+                    "-bufsize", "7000k",
+                    "-c:a", "aac",
+                    "-b:a", "128k",
+                    "-ar", "48000",
+                    "-pix_fmt", "yuv420p",
+                    "-movflags", "+faststart",
+                    "-shortest",
+                    str(FINAL_STITCHED_PATH)
+                ]
+
+            p_cat = subprocess.run(concat_cmd, capture_output=True, text=True)
+            if p_cat.returncode == 0 and FINAL_STITCHED_PATH.exists() and FINAL_STITCHED_PATH.stat().st_size > 0:
+                OUTPUT_1080P_PATH = FINAL_STITCHED_PATH
+                new_mb = OUTPUT_1080P_PATH.stat().st_size / (1024 * 1024)
+                print(f"🎉 FINAL VIDEO PERFECTLY STITCHED in {time.time() - t_stitch:.2f}s! Total Size: {new_mb:.2f} MB")
+            else:
+                print(f"⚠️ Video stitching notice (fallback to main video): {p_cat.stderr[-300:]}")
+    else:
+        print(f"⚠️ Could not download outro video (HTTP {r_out.status_code}), proceeding with main video.")
+except Exception as e_stitch:
+    print(f"⚠️ Outro stitching notice: {e_stitch}, proceeding with main video.")
+
+
 
 # ==========================================
 # 6. Upload Stamped Video to Cloudinary
